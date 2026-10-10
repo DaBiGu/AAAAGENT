@@ -1,6 +1,6 @@
 ## Windows 开发版更新 · 2026-10-11
 
-Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根目录源码保持原状，构建与依赖分别维护。此前的 V2 延期说明保留在下方。
+Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根目录源码保持原状，构建与依赖分别维护。V2.0 的最新进展见下方。
 
 - 视频桌宠与 Live2D 切换、T3 Code 工作台，以及固定版本 Codex / DeepSeek Harness 的 Windows 接口适配。
 - 三种本地 ASR：SenseVoice、Paraformer、Whisper；三种本地 TTS：GPT-SoVITS、Kokoro、Qwen3-TTS。分别实测，模型逐个启动，避免叠加内存与显存。
@@ -12,13 +12,15 @@ Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根�
 
 ---
 
-## V2.0 延期说明 · 2026-10-03
+## V2.0 开发进展 · 2026-10-11
 
-抱歉，让大家久等了。十一玩得太开心，加上工程适配还没调顺，**T3 工作台、可视化 Agent Flow 节点矩阵、本地模型接入、优化后的记忆管理和 DeepSeek 大鲸鱼 Live2D** 将延后一段时间发布。我想先把安装和实际使用调好，让大家拿到后少折腾。
+这次有了**新版 [T3 Code](https://github.com/pingdotgg/t3code) 工作台、更顺畅的工作流程、本地模型接入，以及新的桌宠**。任务组织、会话查看和继续执行集中在工作台里；Flow 用对话节点组织项目，方便在不同任务之间切换。
 
-工程上，接入的 T3 版本缺少现成的 DeepSeek Harness／国产模型通道，原先的 Codex 连接也绑定了旧版本。我正在补齐通道适配、升级兼容和会话同步。
+Windows 开发版已适配 Codex 和 DeepSeek Harness，并接入本地语音识别、语音合成与 Ollama 4B 对话。模型按阶段分别运行，避免同时占满内存和显存。
 
-鲸鱼 Live2D 的动作和立体视角需要手调，AI 生成素材容易出现视角错位、形体不一致。已准备一只替代桌宠和多套表情，会随 **V2.0** 一起更新。[查看完整说明](docs/V2_RELEASE_UPDATE.md)。
+**本地语音合成优先推荐 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)**。想训练自己的音色，可以参考[官方中文安装与微调指南](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/cn/README.md#微调)，并观看官方推荐的[花儿不哭 B 站介绍视频](https://www.bilibili.com/video/BV12g4y1m7Uw)。B 站也有不少相关的[训练教程与经验分享](https://search.bilibili.com/all?keyword=GPT-SoVITS%20%E8%AE%AD%E7%BB%83%E6%95%99%E7%A8%8B)，可按所用版本选择。
+
+新的桌宠使用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** 的视频动作与表情素材，感谢原作者分享。我们完成了播放、状态切换及 Windows 适配，素材仍遵守原项目的署名与使用条款。自己的 DeepSeek 大鲸鱼 Live2D 还在制作中。当前发布的是开发候选，已知问题和实测范围见[完整进展](docs/V2_RELEASE_UPDATE.md)。
 
 ![开发中的 Flow 工作台](assets/previews/v2-flow-workbench-original.jpg)
 
@@ -60,7 +62,7 @@ Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根�
 </div>
 
 > [!IMPORTANT]
-> **「大鲸鱼 DeepSeek」Live2D 模型延期制作，当前安排见[延期说明](docs/V2_RELEASE_UPDATE.md)。**
+> **「大鲸鱼 DeepSeek」Live2D 模型仍在制作，当前桌宠与版本进展见[更新说明](docs/V2_RELEASE_UPDATE.md)。**
 >
 > 目前使用、视频中展示的是**量贩式购买的第三方 Live2D 模型**（[B站搜索「Live2D量贩」](https://search.bilibili.com/all?vt=35099468&amp;keyword=live2d%E9%87%8F%E8%B4%A9&amp;search_source=1&amp;from_source=web_recommend_search)）。原作者的授权不允许二次转发，因此不随本项目提供模型、纹理、表情和动作文件。
 >

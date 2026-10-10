@@ -1,6 +1,6 @@
 ## Windows development update · 2026-10-11
 
-Windows **0.3.0-dev.1** source is available separately under `windows/`. The root Mac source remains unchanged, with separate dependencies and build commands. The earlier V2 delay announcement remains below.
+Windows **0.3.0-dev.1** source is available separately under `windows/`. The root Mac source remains unchanged, with separate dependencies and build commands. See the latest V2.0 progress below.
 
 - Video-pet / Live2D switching, the T3 Code workbench, and Windows integration with pinned Codex and DeepSeek Harness engines.
 - Three local ASR options (SenseVoice, Paraformer, Whisper) and three TTS options (GPT-SoVITS, Kokoro, Qwen3-TTS), tested sequentially to limit RAM and VRAM pressure.
@@ -12,13 +12,15 @@ Video-pet material comes from **[PC2005-cloud/dsh-pet](https://github.com/PC2005
 
 ---
 
-## V2.0 release delay · 2026-10-03
+## V2.0 development progress · 2026-10-11
 
-Sorry for keeping you waiting. I enjoyed the National Day holiday a little too much, and engineering integration still needs work. **The T3 workbench, visual Agent Flow node matrix, local model support, improved memory management, and DeepSeek whale Live2D model** will take a little longer. I want installation and everyday use to work well, so you spend less time fixing things locally.
+This update brings **a newer [T3 Code](https://github.com/pingdotgg/t3code) workbench, a smoother workflow, local model support, and a new desktop pet**. Task organization, conversation browsing and continuation come together in the workbench. Flow organizes projects as conversation nodes for easier movement between tasks.
 
-Our chosen T3 version has no ready-made DeepSeek Harness or domestic-model channel, and our original Codex connection was pinned to an older version. I am addressing provider adapters, upgrade compatibility, and session synchronization.
+The Windows development version integrates Codex and DeepSeek Harness, local ASR and TTS, and 4B dialogue through Ollama. Run models in separate stages to keep RAM and VRAM use manageable.
 
-The whale's motion artwork and perspective need manual adjustment. A replacement desktop pet with multiple expressions is prepared and will ship with **V2.0**. [Read the full update](docs/V2_RELEASE_UPDATE.md#english).
+**[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) is our first recommendation for local speech synthesis.** For your own voice, start with the [official Chinese installation and fine-tuning guide](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/cn/README.md#微调) and the README's recommended [Bilibili introduction by 花儿不哭](https://www.bilibili.com/video/BV12g4y1m7Uw). Bilibili also offers [training guides and community walkthroughs](https://search.bilibili.com/all?keyword=GPT-SoVITS%20%E8%AE%AD%E7%BB%83%E6%95%99%E7%A8%8B); choose one matching your version.
+
+The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**. Thank you to its original author. We provide playback, state switching and Windows integration, while the media retains its original attribution and usage terms. Our own DeepSeek whale Live2D is still in production. This is a development candidate; see the [full update](docs/V2_RELEASE_UPDATE.md#english) for validation and known limitations.
 
 ![Flow workbench development preview](assets/previews/v2-flow-workbench-original.jpg)
 

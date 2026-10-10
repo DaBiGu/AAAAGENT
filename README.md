@@ -1,3 +1,17 @@
+## Windows 开发版更新 · 2026-10-11
+
+Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根目录源码保持原状，构建与依赖分别维护。此前的 V2 延期说明保留在下方。
+
+- 视频桌宠与 Live2D 切换、T3 Code 工作台，以及固定版本 Codex / DeepSeek Harness 的 Windows 接口适配。
+- 三种本地 ASR：SenseVoice、Paraformer、Whisper；三种本地 TTS：GPT-SoVITS、Kokoro、Qwen3-TTS。分别实测，模型逐个启动，避免叠加内存与显存。
+- Ollama 通过 OpenAI 兼容接口接入 Qwen3.5 4B 前台对话；后台记忆等服务仍可使用云端。4B 测试中存在算术与上下文召回错误，遗忘请求的后台处理也有已知失败，不能视为全离线或稳定版。
+
+查看 [Windows 安装](windows/README-WINDOWS.md)、[实测与已知问题](windows/docs/WINDOWS-20261010.md)、[本地对话](windows/docs/LOCAL-LLM.md)和[第三方声明](windows/THIRD_PARTY_NOTICES.md)。权重、个人音色、角色媒体、SDK、凭据和运行数据需在本地另行准备。
+
+视频桌宠素材引用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**（v0.3.6，提交 `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`）。其代码为 MIT；动画、提示词和源视频禁止商用，衍生作品需保留原项目链接。AAAAGENT 提供 Windows 播放及状态接线适配；素材包不随本次源码分发。工作台基于 **[T3 Code](https://github.com/pingdotgg/t3code)**，保留其 MIT 许可和依赖署名。购买的 Live2D 模型继续遵守原作者条款，不再分发。
+
+---
+
 ## V2.0 延期说明 · 2026-10-03
 
 抱歉，让大家久等了。十一玩得太开心，加上工程适配还没调顺，**T3 工作台、可视化 Agent Flow 节点矩阵、本地模型接入、优化后的记忆管理和 DeepSeek 大鲸鱼 Live2D** 将延后一段时间发布。我想先把安装和实际使用调好，让大家拿到后少折腾。
@@ -26,7 +40,7 @@
 
 ## 预开发计划
 
-正在规划本地模型接入：
+以下保留原规划；Windows 已完成的开发版接入及限制见页面顶部，Mac 计划不变：
 
 | 功能 | 计划方案 | 状态 |
 | --- | --- | --- |
@@ -73,7 +87,7 @@ AAAAGENT 是一个以 macOS 为主要平台、同时提供 Windows 开发版的�
 | 平台 | 状态与入口 |
 | --- | --- |
 | **macOS** | 当前主要维护和使用的完整版本；源码在根目录 `code/desktop-pet/`。查看 [Mac 安装说明](docs/SETUP.md)。 |
-| **Windows** | 独立 Electron 开发版；源码在 `windows/code/desktop-pet/`。查看 [Windows 安装说明](windows/README-WINDOWS.md)。0.1.2 已同步独立情绪状态、消息快照与网页查询，并完成旧聊天导入、自助配置和任务转交回归；见 [Windows 验证](windows/WINDOWS-VALIDATION.md#2026-09-19-windows-update)。 |
+| **Windows** | 独立 Electron 开发版 **0.3.0-dev.1**，源码在 `windows/code/desktop-pet/`；[安装](windows/README-WINDOWS.md) · [当前验证与限制](windows/docs/WINDOWS-20261010.md) · [第三方署名](windows/THIRD_PARTY_NOTICES.md)。 |
 
 详情见 [平台差异与问题反馈](docs/PLATFORMS.md)。报告问题时请附系统版本、复现步骤和去除敏感信息的报错。两个目录分别安装依赖，勿混用配置或构建产物。
 

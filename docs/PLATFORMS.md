@@ -20,7 +20,13 @@
 
 Windows 0.1.2 已移植文字/近期对话推测、独立用户与桌宠状态、消息快照和网页查询，并保留已有 Windows 任务适配器。旧聊天导入与自助 Key/模型/音色设置也已完成 Windows 回归；详见 [Windows 说明](../windows/README-WINDOWS.md)。
 
+视频桌宠引用 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，T3 工作台引用 [T3 Code](https://github.com/pingdotgg/t3code)。代码与素材分别遵守原许可，完整署名见 [Windows 第三方声明](../windows/THIRD_PARTY_NOTICES.md)。媒体、购买的 Live2D、SDK 和模型权重不随源码提供。
+
 ## Windows 当前边界
+
+Windows 0.3.0-dev.1 开发版已基于 2026-10-10 交接源码接入视频桌宠、Live2D 切换及本地三种 ASR、三种 TTS。新应用调用链完成 9 段合成、27 次交叉识别，模型逐个启动并记录内存/显存；另有单独运行的 [Ollama 本地前台对话候选](../windows/docs/LOCAL-LLM.md)，后台记忆仍可使用云端。Codex、DeepSeek Harness 均通过 T3 完成两轮同会话实际文件任务。作为开发候选源码发布，Mac 根目录保持独立。详情见 [本次适配与验证](../windows/docs/WINDOWS-20261010.md)，用户微调音色和实体设备需现场验证。
+
+已知限制：4B 算术与召回有错误；明确遗忘请求的后台记忆处理曾报 `source_expansion_contains_future_message`。完整 Codex 桌面 App 双向同步、个人微调音色、实体麦克风/扬声器及长时运行仍需验证，详见上面的当前验证文档。
 
 Windows 包提供 Electron 宿主、窗口交互、本地预览、平台路径及权限适配。离线预览会回显输入；接入真实模型需要按安装说明配置服务。
 
@@ -51,7 +57,9 @@ Use the root `code/desktop-pet/` for macOS, or `windows/code/desktop-pet/` for t
 
 The Windows port includes an Electron host and platform-specific path, permission and window handling. Its offline preview echoes input; configure a provider for model chat. Bring your own authorized Live2D rig, SDK, credentials and configuration. The supplied character artwork contains static images and layers, with rigging still in progress.
 
-Windows Codex forwarding uses its app-server adapter; follow the Windows setup guide. Physical audio/video, cloud speech, WeChat delivery, wake accuracy and real Harness dispatch require separate validation. Mac paths and activation fingerprints cannot be reused unchanged on Windows.
+Windows 0.3.0-dev.1 is a separately published development candidate based on the October 10 handoff. It integrates video/Live2D switching and three ASR plus three TTS options into the current application. Nine real clips and 27 cross-transcriptions were tested one model at a time, with RAM/VRAM sampling. A separate [Ollama local foreground dialogue candidate](../windows/docs/LOCAL-LLM.md) retains independent background cloud providers. See [current validation](../windows/docs/WINDOWS-20261010.md); personal fine-tuned voices and physical devices require separate evaluation.
+
+Windows Codex and DeepSeek Harness both completed two real file-task turns in the same native session through T3 in the October 10 local candidate. Follow the Windows setup guide. Physical audio/video, cloud speech, WeChat delivery and wake accuracy require separate validation. Mac paths and activation fingerprints cannot be reused unchanged on Windows.
 
 The [Windows validation](../windows/WINDOWS-VALIDATION.md#2026-09-19-windows-update) records tests run on Windows 11 x64, Node 22.14.0 and Electron 44.4.1: 563 core, 138 release, 22 Windows, 27 emotion-backend, 64 work-dispatch and five stress tests passed. One Chromium test covers six emotion-page scenarios. Setup passed 49 tests, with four Unix-only checks skipped. Suites overlap. The ACL/file-identity, manual-memory and shutdown fixes from 0.1.1 remain in place. Real-service results and untested devices are dated separately in that report.
 

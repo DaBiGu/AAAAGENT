@@ -1,3 +1,17 @@
+## Windows development update · 2026-10-11
+
+Windows **0.3.0-dev.1** source is available separately under `windows/`. The root Mac source remains unchanged, with separate dependencies and build commands. The earlier V2 delay announcement remains below.
+
+- Video-pet / Live2D switching, the T3 Code workbench, and Windows integration with pinned Codex and DeepSeek Harness engines.
+- Three local ASR options (SenseVoice, Paraformer, Whisper) and three TTS options (GPT-SoVITS, Kokoro, Qwen3-TTS), tested sequentially to limit RAM and VRAM pressure.
+- Qwen3.5 4B foreground dialogue through Ollama's OpenAI-compatible endpoint. Background memory may still use cloud services. Tests exposed arithmetic and recall errors, plus a known background forgetting-processing failure; this is a development candidate, not a fully offline or stable release.
+
+See [Windows setup](windows/README-WINDOWS.md), [validation and known issues](windows/docs/WINDOWS-20261010.md), [local dialogue](windows/docs/LOCAL-LLM.md), and [third-party notices](windows/THIRD_PARTY_NOTICES.md). Supply model weights, personal voices, character media, SDKs, credentials and runtime data separately.
+
+Video-pet material comes from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** (v0.3.6, commit `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`). Its code is MIT; animations, prompts and source videos prohibit commercial use and require the original project link in derivative introductions, displays and distributions. AAAAGENT supplies Windows playback and state integration; the media bundle is not included. The workbench derives from **[T3 Code](https://github.com/pingdotgg/t3code)** with its MIT license and dependency notices preserved. Purchased Live2D assets retain their original terms and are not redistributed.
+
+---
+
 ## V2.0 release delay · 2026-10-03
 
 Sorry for keeping you waiting. I enjoyed the National Day holiday a little too much, and engineering integration still needs work. **The T3 workbench, visual Agent Flow node matrix, local model support, improved memory management, and DeepSeek whale Live2D model** will take a little longer. I want installation and everyday use to work well, so you spend less time fixing things locally.
@@ -26,7 +40,7 @@ The whale's motion artwork and perspective need manual adjustment. A replacement
 
 ## Planned development
 
-Local model integration is being planned:
+The original roadmap remains below; see the Windows development progress and limitations above. The Mac roadmap is unchanged:
 
 | Capability | Planned approach | Status |
 | --- | --- | --- |
@@ -73,7 +87,7 @@ AAAAGENT is a desktop companion developed primarily for macOS, with a separate W
 | Platform | Status and entry point |
 | --- | --- |
 | **macOS** | The primary version, with source in the root `code/desktop-pet/`. See [Mac setup](docs/SETUP.md#english). |
-| **Windows** | A separate Electron development version in `windows/code/desktop-pet/`. See [Windows setup](windows/README-WINDOWS.md). Version 0.1.2 includes emotion states, message snapshots and web queries, with Windows regressions for chat import, self-service setup and task dispatch. See the [dated validation](windows/WINDOWS-VALIDATION.md#2026-09-19-windows-update). |
+| **Windows** | Separate Electron development candidate **0.3.0-dev.1** in `windows/code/desktop-pet/`; [setup](windows/README-WINDOWS.md) · [validation and limits](windows/docs/WINDOWS-20261010.md) · [credits](windows/THIRD_PARTY_NOTICES.md). |
 
 See [platform differences and issue reporting](docs/PLATFORMS.md#english). Include your OS version, reproduction steps and sanitized errors. Install dependencies separately for each platform; do not mix configuration or build outputs.
 

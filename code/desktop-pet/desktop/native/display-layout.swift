@@ -4,6 +4,7 @@ import CoreGraphics
 // Private shell geometry in logical points. Screen fitting never writes preferences.
 struct PetDisplayLayout {
     static let aspect = 340.0 / 360.0
+    static let ballSize = 44.0
     let frame: CGRect
     let modelWidth: Double
     let modelHeight: Double
@@ -13,8 +14,10 @@ struct PetDisplayLayout {
     let drawerFrame: CGRect
     let viewport: CGRect
     let placement: String
+    let collapsed: Bool
+    let ballFrame: CGRect
     // Anchor is the MODEL's screen-space top centre, never the enclosing window.
-    static func fit(width: Double, open: Bool, screen: CGRect, anchor: CGPoint) -> PetDisplayLayout {
+    static func fit(width: Double, open: Bool, screen: CGRect, anchor: CGPoint, collapsed: Bool = false) -> PetDisplayLayout {
         let available = max(1, screen.height - 36)
         let modelWidth = max(1, min(width, max(1, screen.width - 20), available / aspect))
         let modelHeight = modelWidth * aspect
@@ -53,7 +56,10 @@ struct PetDisplayLayout {
                 placement="overlay"
             }
         }
-        return PetDisplayLayout(frame:open ? pet.union(drawer):pet,modelWidth:modelWidth,modelHeight:modelHeight,drawerHeight:drawer.height,modelFrame:model,petFrame:pet,drawerFrame:drawer,viewport:screen,placement:placement)
+        let diameter = max(1,min(ballSize,screen.width,screen.height))
+        let ball = CGRect(x:min(max(anchor.x-diameter/2,screen.minX),screen.maxX-diameter),
+                          y:min(max(anchor.y-diameter,screen.minY),screen.maxY-diameter),width:diameter,height:diameter)
+        return PetDisplayLayout(frame:collapsed ? ball:(open ? pet.union(drawer):pet),modelWidth:modelWidth,modelHeight:modelHeight,drawerHeight:drawer.height,modelFrame:model,petFrame:pet,drawerFrame:drawer,viewport:screen,placement:placement,collapsed:collapsed,ballFrame:ball)
     }
 
     // CSS origin is the screen's top-left; AppKit's is the bottom-left.
@@ -61,7 +67,8 @@ struct PetDisplayLayout {
     var configuration: [String:Any] {
         ["modelWidth":modelWidth,"modelHeight":modelHeight,"drawerHeight":drawerHeight,
          "petLeft":petFrame.minX-viewport.minX,"petTop":viewport.maxY-petFrame.maxY,"petWidth":petFrame.width,
-         "drawerLeft":drawerFrame.minX-viewport.minX,"drawerTop":viewport.maxY-drawerFrame.maxY,"drawerWidth":drawerFrame.width,"placement":placement]
+         "drawerLeft":drawerFrame.minX-viewport.minX,"drawerTop":viewport.maxY-drawerFrame.maxY,"drawerWidth":drawerFrame.width,"placement":placement,
+         "collapsed":collapsed,"ballLeft":ballFrame.minX-viewport.minX,"ballTop":viewport.maxY-ballFrame.maxY,"ballSize":ballFrame.width]
     }
 }
 

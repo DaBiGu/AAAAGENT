@@ -120,7 +120,8 @@ test('Plus and Pro reservation conflict refuses before network without provider 
   const effective = effectiveTrialConfiguration(f.c, validateManagedSettings(settings, f.c));
   const authorizer = new TrialAuthorizer(effective, f.configFile, f.activationFile, f.c), runtime = new ManagementRuntime(f.c.sourceRevision);
   const scope = { characterId: 'companion' as const, sessionId: 'test', turnId: 'plus', generation: 1 };
-  const pending = await authorizer.authorize({ scope, operation: 'memory_turn', ...effective.models.memory_turn }, new AbortController().signal);
+  // Admit the existing strict call under the prior foreground selection.
+  const pending = await new TrialAuthorizer(f.c,f.configFile,f.activationFile).authorize({ scope, operation: 'memory_turn', ...f.c.models.memory_turn }, new AbortController().signal);
   let posts = 0;
   const transport = new TrialTransport(effective, async () => { posts++; throw new Error('Must not send'); }, runtime);
   await assert.rejects(transport.request({ ...effective.models.perception, apiKey: () => 'synthetic-key', authorizer }, scope,

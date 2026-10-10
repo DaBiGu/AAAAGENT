@@ -8,7 +8,7 @@ import { TrialAuthorizer, estimateTrialMicros } from '../../app/trial-authorizer
 const hash = (raw: string) => createHash('sha256').update(raw).digest('hex');
 const scope = { characterId: 'friend' as const, sessionId: 'session', turnId: 'turn', generation: 1 };
 export async function fixture(t: { after(fn: () => Promise<void>): void }) {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/companion-step1-01/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-I/companion-step1-01/tmp');
   await mkdir(parent, { recursive: true });
   const projectRoot = await mkdtemp(join(parent, 'trial-config-')); t.after(() => rm(projectRoot, { recursive: true, force: true }));
   const chat: TrialModel = { provider: 'dashscope', model: 'qwen-plus-2025-12-01', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
@@ -18,7 +18,7 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const c: TrialConfiguration = { version: 1, product: 'companion-v1', phaseId: 'local-trial-controlled', purpose: 'user-trial', projectRoot, sourceRevision: 'a'.repeat(40),
     runtimeFiles: Object.fromEntries(['dist/app/trial-backend.js', 'dist/app/trial-launcher.js', 'desktop/build/renderer.js',
       'desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'].map(p => [`code/desktop-pet/${p}`, hash('controlled')])),
-    database: join(projectRoot, '.local/data/companion.sqlite'), budgetFile: join(projectRoot, '.local/model-evaluation/budget.json'),
+    database: join(projectRoot, 'data/desktop-pet/companion.sqlite'), budgetFile: join(projectRoot, 'artifacts/W0-I/model-evaluation/budget.json'),
     budgetBatchId: 'original-fixture-batch', limitMicros: 20000000, phaseLimitMicros: 20000000, maxCalls: 200,
     operationLimits: { admission: 40, dialogue: 40, memory_turn: 40, summary: 20, perception: 20, tts: 40 },
     memory: { mode: 'strict', scheduling: 'semantic-admission', timeoutMs: 300000 },

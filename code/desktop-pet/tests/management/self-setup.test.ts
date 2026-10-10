@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { ManagedCredentialStore, acquireSetupLock } from '../../management/credential-store.js';
 function fixture(t:test.TestContext){const root=realpathSync(mkdtempSync(join(tmpdir(),'self-setup-50-')));t.after(()=>rmSync(root,{recursive:true,force:true}));const project=join(root,'project');mkdirSync(project);return {root,project,directory:join(root,'private','keys')};}
-const key='sk-fixture-only';
+const key='sk-synthetic-not-a-real-credential';
 test('first view creates no credential storage; save returns only reference and preserves old key versions',t=>{
  const f=fixture(t),store=new ManagedCredentialStore(f.project,f.directory);assert.deepEqual(store.entries(),[]);assert.throws(()=>statSync(f.directory));
  const first=store.save({provider:'dashscope',key,expectedRevision:0,operationId:'synthetic-one'});

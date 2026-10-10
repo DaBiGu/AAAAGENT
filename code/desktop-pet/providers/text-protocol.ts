@@ -16,3 +16,8 @@ export function deepseekFlashModel(credentialFile: string) {
     inputTokenLimit: 32768, outputTokenLimit: 393216, inputMicrosPerToken: 2, outputMicrosPerToken: 8,
     reservationMicros: 3211264 };
 }
+
+/** Foreground capacity registration; background text operations keep their independent 32768 input budget. */
+export function deepseekFlashDialogueModel(credentialFile:string) {
+  return {...deepseekFlashModel(credentialFile),inputTokenLimit:1048576,contextWindowTokens:1048576,reservationMicros:3545728};
+}

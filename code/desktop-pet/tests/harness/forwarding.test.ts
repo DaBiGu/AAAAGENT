@@ -12,7 +12,7 @@ import { harnessAccounting } from '../../harness/accounting.js';
 import type { RelayMetrics, RelayTerminal } from '../../harness/connection.js';
 
 async function fixture(t: TestContext) {
-  const parent = resolve('../../.local/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W0-I/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'forward-')), projectRoot = join(root, 'project'); await mkdir(projectRoot); await writeFile(join(projectRoot, 'AGENTS.md'), 'Synthetic project entry.');
   const protectedFile = join(root, 'companion.sqlite'); await writeFile(protectedFile, 'Protected synthetic companion payload');
   const projects = new SqliteProjectIndex(join(root, 'project-index.sqlite'));

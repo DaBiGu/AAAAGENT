@@ -2,7 +2,6 @@ import { InteractionMotion } from './interaction-motion.mjs';
 import { normalizePresentationIntent } from '../contracts/presentation.ts';
 import { ModelFeather } from './model-feather.mjs';
 import presetCatalog from './assets/local-model/presets.json';
-import parameterMap from './config/parameter-map.json';
 // Application adapter over the official SDK; SDK owns deformation, physics, blending and WebGL rendering.
 import { CubismFramework } from './vendor/cubism/Framework/src/live2dcubismframework.ts';
 import { CubismUserModel } from './vendor/cubism/Framework/src/model/cubismusermodel.ts';
@@ -17,7 +16,7 @@ const presets = new Map(presetCatalog.items.map(item => [item.id, item]));
 const automaticItems = presetCatalog.items.filter(item => item.availability === 'automatic');
 const faces = new Map(automaticItems.flatMap(item => (item.emotions ?? []).map(key => [key, item])));
 const gestures = new Map(automaticItems.flatMap(item => (item.gestures ?? []).map(key => [key, item])));
-const headParameters = [parameterMap.headYaw, parameterMap.headPitch, parameterMap.headRoll];
+const headParameters = ['ParamAngleX2', 'ParamAngleX3', 'ParamAngleX4'];
 const interactionParameters = [...headParameters, 'ParamBodyAngleX', 'ParamEyeBallX', 'ParamEyeBallY'];
 const webglOwners = new Set();
 export class JellyfishRenderer extends CubismUserModel {
@@ -81,7 +80,7 @@ export class JellyfishRenderer extends CubismUserModel {
       for (const parameter of JSON.parse(new TextDecoder().decode(b)).Parameters) {
         if (!this.parameterIndices.has(parameter.Id)) throw new Error('预设引用了模型不存在的参数');
         // Mouth amplitude stays on the actual playback clock, never expression easing.
-        if (parameter.Id === 'ParamMouthOpenY') continue;
+        if (parameter.Id === 'ParamMouthOpenY' || parameter.Id === 'fase80') continue;
         this.previewParameters.add(parameter.Id);
         if (supported.has(name)) this.expressionParameters.add(parameter.Id);
         if (appearance.has(name)) this.appearanceParameters.add(parameter.Id);
@@ -89,9 +88,10 @@ export class JellyfishRenderer extends CubismUserModel {
     }
     const motion = await read(this.settings.getMotionFileName('Idle', 0)); this.idle = this.loadMotion(motion, motion.byteLength, 'Idle'); this.idle.setLoop(true); this.idle.setEffectIds([], []);
     this.motionParameters = new Set(JSON.parse(new TextDecoder().decode(motion)).Curves.filter(c => c.Target === 'Parameter').map(c => c.Id));
-    this.runtimeParameters = new Set([...this.expressionParameters, ...this.motionParameters, ...interactionParameters, 'ParamBodyAngleX', 'ParamEyeLOpen', 'ParamEyeROpen', parameterMap.mouthForm, 'ParamMouthOpenY']);
+    this.runtimeParameters = new Set([...this.expressionParameters, ...this.motionParameters, ...interactionParameters, 'ParamBodyAngleX', 'ParamEyeLOpen', 'ParamEyeROpen', 'ParamMouthForm2', 'ParamMouthOpenY']);
     for (const id of this.runtimeParameters) { if (!this.parameterIndices.has(id)) throw new Error('动作引用了模型不存在的参数'); this.previewParameters.add(id); this.appearanceParameters.delete(id); }
-    this._model.update();
+    // Asset-author switch: hide the preview watermark; source model and textures stay intact.
+    this.set('fase80', 1); this._model.update();
     this.defaults = Array.from(this._model.getModel().parameters.values);
   }
   set(name, value) { const m = this._model; const id = CubismFramework.getIdManager().getId(name); const i = m.getParameterIndex(id); if (i >= 0 && i < m.getParameterCount()) m.setParameterValueByIndex(i, value); }
@@ -203,7 +203,7 @@ export class JellyfishRenderer extends CubismUserModel {
     const movement = this.interaction.sample({ now, delta, elapsed: this.elapsed, state: this.previewMode ? 'idle' : interactionState,
       head: enabled('proc-head')||workActive, body: enabled('proc-body')||workActive, blink: enabled('proc-blink')||workActive, work:workActive, reducedMotion:globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true });
     if (enabled('proc-head') || workActive) {
-      this.set(parameterMap.headYaw, movement.yaw); this.set(parameterMap.headPitch, movement.pitch); this.set(parameterMap.headRoll, movement.roll);
+      this.set('ParamAngleX2', movement.yaw); this.set('ParamAngleX3', movement.pitch); this.set('ParamAngleX4', movement.roll);
       this.set('ParamEyeBallX', movement.gazeX); this.set('ParamEyeBallY', movement.gazeY);
     }
     if (workActive || enabled('proc-blink') && !this.previewMode) {
@@ -215,8 +215,9 @@ export class JellyfishRenderer extends CubismUserModel {
     if (enabled('proc-body') || workActive) this.set('ParamBodyAngleX', this.get('ParamBodyAngleX') + movement.body);
     if (this.previewMode) this.blendParameters(this.previewParameters, this.previewValues, delta);
     // This asset's MouthForm2 is a smile shape; only MouthOpenY receives output amplitude.
-    this.set(parameterMap.mouthForm, face === '星星眼' ? .7 : face === '脸红' ? .25 : 0);
+    this.set('ParamMouthForm2', face === '星星眼' ? .7 : face === '脸红' ? .25 : 0);
     this.set('ParamMouthOpenY', active ? Math.min(1, Math.sqrt(view.mouth) * 1.9) : 0);
+    this.set('fase80', 1);
     this._model.update();
     this.draw();
   }

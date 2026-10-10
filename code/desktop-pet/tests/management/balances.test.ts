@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,rm,stat,readFile,symlink,writeFile} from 'node:fs/promises
 import {resolve,join} from 'node:path';
 import {FinanceCredentials} from '../../management/balance-credentials.js';
 import {ProviderBalances,balanceRows,rpcSignature} from '../../management/balances.js';
-async function fixture(t:{after(fn:()=>Promise<void>):void}){const parent=resolve('../../.local/balances-32/tmp');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'balance-'));t.after(()=>rm(root,{recursive:true,force:true}));return {root,credentials:new FinanceCredentials(root)};}
+async function fixture(t:{after(fn:()=>Promise<void>):void}){const parent=resolve('../../artifacts/W0-I/balances-32/tmp');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'balance-'));t.after(()=>rm(root,{recursive:true,force:true}));return {root,credentials:new FinanceCredentials(root)};}
 const data={is_available:true,balance_infos:[{currency:'CNY',total_balance:'123.45'},{currency:'USD',total_balance:'6.70'}]};
 const response=(v:unknown)=>new Response(JSON.stringify(v),{headers:{'content-type':'application/json'}});
 test('RPC signature agrees with official SDK and independent Python vector',()=>{

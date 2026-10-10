@@ -4,6 +4,36 @@ import { createServer } from 'node:http';
 import { HarnessConnection } from '../../harness/connection.js';
 import { randomUUID } from 'node:crypto';
 
+test('pinned project connection accepts the native relative root, requires scope before creating and never prompts', async t => {
+  let safe = false; const calls: string[] = [];
+  const server = createServer(async (req,res) => {
+    if (req.url === '/?token=fixture') { res.writeHead(303,{Location:'./','Set-Cookie':'dsh-auth-fixture=fixture.cookie'});res.end();return; }
+    const parts: Buffer[]=[]; for await(const p of req)parts.push(p);const m=JSON.parse(Buffer.concat(parts).toString());calls.push(m.method);
+    const q=m.payload.args.request, selection={provider:'deepseek-official',model:'deepseek-flash',reasoningEffort:'high'};
+    const value=m.method==='session/modelCatalog' ? safe?{sessionModelSelectionVersion:1}:{} :
+      m.method==='session/create' ? {sessionId:q.sessionId,agentPreset:q.agentPreset} :
+      m.method==='session/rename' ? {title:q.title,seq:1} : {selected:selection,scope:'session'};
+    if(m.method==='session/selectModel')assert.equal(q.scope,'session');
+    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({type:'server-response',rpcId:m.rpcId,result:{ok:true,value}}));
+  });
+  await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));t.after(()=>{server.closeAllConnections();server.close();});
+  const address=server.address();assert.ok(address&&typeof address!=='string');
+  const c=new HarnessConnection(async()=>`http://127.0.0.1:${address.port}/?token=fixture`,5000,true);
+  await assert.rejects(c.createWorkSession('project-'+randomUUID(),'/owned-workspace'));assert.deepEqual(calls,['session/modelCatalog']);
+  safe=true;await c.createWorkSession('project-'+randomUUID(),'/owned-workspace');
+  assert.deepEqual(calls,['session/modelCatalog','session/modelCatalog','session/create','session/rename','session/selectModel']);
+});
+
+test('new project authentication still refuses every redirect beyond the exact root exchange',async t=>{
+  for(const destination of ['//foreign.invalid/','/other','./?token=fixture','../']){
+    let requests=0;const server=createServer((req,res)=>{requests++;res.writeHead(303,{Location:destination,'Set-Cookie':'dsh-auth-fixture=fixture'});res.end();});
+    await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));const address=server.address();assert.ok(address&&typeof address!=='string');
+    const c=new HarnessConnection(async()=>`http://127.0.0.1:${address.port}/?token=fixture`,5000,true);
+    assert.equal((await c.probe()).state,'authentication_required');assert.equal(requests,1);
+    server.closeAllConnections();server.close();
+  }
+});
+
 test('paged cold history binds an exact request to its failed turn, never an unrelated latest completion', async t => {
   const first = randomUUID(), other = randomUUID(), sessionId = 'session-' + randomUUID();
   const records = [

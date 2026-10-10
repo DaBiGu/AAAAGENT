@@ -17,7 +17,7 @@ test('trial backend refuses missing explicit activation without opening the old 
 });
 
 test('trial strict adapter compiles controlled provider semantics into actual SQLite and survives reopen', async t => {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/companion-step1-01/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-I/companion-step1-01/tmp');
   await mkdir(parent, { recursive: true }); const root = await mkdtemp(join(parent, 'strict-trial-'));
   const filename = join(root, 'state.sqlite');
   let store = new SqliteMemoryStore({ filename, retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai') });

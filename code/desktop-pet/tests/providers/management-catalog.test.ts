@@ -59,8 +59,8 @@ test('all six registered baselines retain tariffs and limits without reading or 
     Object.defineProperty(model, 'extraPrivateData', { enumerable: true, get() { throw new Error('Unexpected field read'); } });
   }
   const catalog = managementAdapterCatalog(base);
-  assert.equal(catalog.length, 7); assert.equal(new Set(catalog.map(adapter => adapter.id)).size, 7);
-  for (const adapter of catalog.filter(adapter => adapter.id !== 'qwen-audio-tts')) {
+  assert.equal(catalog.length, 8); assert.equal(new Set(catalog.map(adapter => adapter.id)).size, 8);
+  for (const adapter of catalog.filter(adapter => !['qwen-audio-tts', 'minimax-tts'].includes(adapter.id))) {
     const slot = adapter.slots[0]!, original = base.models[slot]!, first = adapter.choices![0]!.configuration;
     for (const field of ['model', 'provider', 'endpoint', 'inputTokenLimit', 'outputTokenLimit',
       'inputMicrosPerToken', 'outputMicrosPerToken', 'reservationMicros'] as const) assert.equal(first[field], original[field]);
@@ -79,7 +79,7 @@ test('catalog is detached from the baseline and fresh between calls, including n
 
 test('six existing adapter choices pass trial bounds and keep model/price/reservation as one configuration', () => {
   const base = fixture();
-  for (const adapter of managementAdapterCatalog(base).filter(adapter => adapter.id !== 'qwen-audio-tts')) {
+  for (const adapter of managementAdapterCatalog(base).filter(adapter => !['qwen-audio-tts', 'minimax-tts'].includes(adapter.id))) {
     assert.equal(new Set(adapter.models).size, adapter.models.length);
     const slot = adapter.slots[0]!;
     for (const choice of adapter.choices!) {
@@ -119,7 +119,7 @@ test('Flash selection reaches the actual dialogue request and keeps non-thinking
     return Response.json({ choices: [{ message: { content: JSON.stringify({ text: '我在。', expression }) }, finish_reason: 'stop' }] });
   }));
   assert.equal((await provider.reply({ scope, text: '你好', context: { scope, characterPrompt: '朋友', recent: [],
-    summary: '', memories: [], perception: null, inputTokenBudget: 5000 } }, signal())).text, '我在。');
+    summary: '', memories: [], perception: null, inputTokenBudget: 32768 } }, signal())).text, '我在。');
   assert.equal(calls, 1);
 });
 
@@ -172,9 +172,9 @@ test('supported TTS voice changes the existing request and returns WAV without p
   await store.releaseScope(scope);
 });
 
-test('voice-clone protocols and unreviewed DeepSeek replacements are absent', () => {
+test('voice cloning is confined to the registered MiniMax adapter', () => {
   const catalog = managementAdapterCatalog(fixture());
-  assert.ok(catalog.every(adapter => adapter.capabilities.cloning === false));
+  assert.deepEqual(catalog.filter(adapter => adapter.capabilities.cloning).map(adapter => adapter.id), ['minimax-tts']);
   assert.doesNotMatch(JSON.stringify(catalog.map(adapter => adapter.models)), /cosyvoice|deepseek-v4-flash|tts-vc/);
   assert.deepEqual(catalog.find(adapter => adapter.id === 'strict-deepseek')!.models, ['deepseek-v4-pro']);
 });

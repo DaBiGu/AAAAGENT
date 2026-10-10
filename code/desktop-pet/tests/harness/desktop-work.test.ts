@@ -18,7 +18,7 @@ import { parseWorkAction } from '../../app/backend-session.js';
 const scope: TurnScope = { characterId: 'companion', sessionId: 'session', turnId: 'turn', generation: 1 };
 const tick = () => new Promise<void>(yes => setImmediate(yes));
 async function fixture(t: TestContext, automatic=false, continuation=false) {
-  const parent = resolve('../../.local/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W0-I/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'work-')); const file = join(root, 'harness-relay.sqlite');
   const receipts = new ForwardReceipts(file), projects = new SqliteProjectIndex(join(root, 'project-index.sqlite'));
   const task = randomUUID(), turn = randomUUID(), states: DesktopWorkState[] = [], notices: WorkStatusNotice[] = [];
@@ -61,6 +61,29 @@ test('ordinary input/Space restores companion focus without cancelling work; com
   f.observation.completed = true; await f.work.observe();
   assert.equal(f.receipts.get(row.id).phase, 'completed'); assert.equal(f.states.at(-1)?.focus, 'companion'); assert.equal(f.states.at(-1)?.stage, 'completed');
   assert.equal(f.observation.sends, 1); assert.equal(f.observation.prompts, 0); assert.equal(f.observation.sends, 1);
+});
+test('selected native workbench routes engineering text and ASR before legacy draft creation', async t => {
+  const f = await fixture(t);
+  await f.work.close();
+  const routed: string[] = [];
+  let intent: WorkIntent = { kind: 'work' };
+  const work = new DesktopWork({ receipts: f.receipts, projects: f.projects, forwarding: f.forwarding,
+    classify: async () => intent,
+    workbenchSelection: () => ({ revision: 1, projectId: 'native-project', taskId: 'native-task' }),
+    workbenchRoute: async (owned, text, _signal, assertCurrent, selected) => {
+      assertCurrent(); assert.equal(owned.sessionId, scope.sessionId);
+      assert.equal(selected.taskId, 'native-task'); routed.push(text); return true;
+    }, emit: state => f.states.push(state) });
+  t.after(async () => work.close());
+  await work.start(60000);
+  assert.equal(await work.route(scope, '继续准确的原生任务', new AbortController().signal), 'handled');
+  assert.equal(await work.route({ ...scope, turnId: 'asr-turn' }, '语音补充这项任务', new AbortController().signal), 'handled');
+  assert.deepEqual(routed, ['继续准确的原生任务', '语音补充这项任务']);
+  assert.equal(f.receipts.drafts().length, 0);
+  assert.equal(f.observation.sends + f.observation.prompts + f.observation.nativePrompts, 0);
+  intent = { kind: 'companion' };
+  assert.equal(await work.route({ ...scope, turnId: 'chat-turn' }, '聊聊今天', new AbortController().signal), 'companion');
+  assert.equal(routed.length, 2);
 });
 test('dismissed or stale draft cannot be confirmed; missing owner stays before model prompt', async t => {
   const f = await fixture(t); await f.work.route(scope, 'Do work', new AbortController().signal); const row = await f.choose();

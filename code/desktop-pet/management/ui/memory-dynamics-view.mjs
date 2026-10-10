@@ -1,5 +1,6 @@
 import {query,clone} from './api.mjs';
 import {el,button,badge,notice,card,field,select,definition,time,statuses,kinds} from './dom.mjs';
+import {contextBudgetView,validBudgetReport,omissionLabels} from './context-budget-view.mjs';
 
 // Mirrors the public memory-dynamics 0.1.0 edit limits; scoring belongs to the service.
 const parameters=[
@@ -11,7 +12,7 @@ const parameters=[
   ['emotionWeight','情绪权重',0,.10,.01],
 ];
 const labels={...kinds,emotion:'情绪记录'};
-const omission={hard_gate:'归属、有效性或遗忘检查未通过',no_cue:'没有匹配线索',below_threshold:'低于选入门槛',limit:'超过条数上限',budget:'上下文空间不足'};
+const omission=omissionLabels;
 const cues={keywords:'关键词',phrase:'完整短语',supported_relation:'有来源支持的事实关系',none:'无线索'};
 const traceStatuses={assembled:'已组装 · 未确认用于模型输入',consumed:'已用于模型输入',invalidated:'已失效 · 不再代表有效上下文'};
 const pct=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'未评估';
@@ -20,7 +21,7 @@ const reference=s=>s.id+' · v'+s.version;
 const validVersion=n=>Number.isSafeInteger(n)&&n>=0;
 const validDate=s=>typeof s==='string'&&Number.isFinite(Date.parse(s));
 const validSources=xs=>Array.isArray(xs)&&xs.every(x=>typeof x.id==='string'&&validVersion(x.version));
-const validCandidates=xs=>Array.isArray(xs)&&xs.every(c=>validSources([c.source])&&['activation','importance','emotion','relevance','priority'].every(k=>Number.isFinite(c[k]))&&Array.isArray(c.matchedTerms)&&c.matchedTerms.every(t=>typeof t==='string')&&c.cueKind in cues&&typeof c.selected==='boolean'&&(c.omission===null||c.omission in omission));
+const validCandidates=xs=>Array.isArray(xs)&&xs.every(c=>validSources([c.source])&&['activation','importance','emotion','relevance','priority'].every(k=>Number.isFinite(c[k]))&&Array.isArray(c.matchedTerms)&&c.matchedTerms.every(t=>typeof t==='string')&&c.cueKind in cues&&typeof c.selected==='boolean'&&(c.omission===null||Object.hasOwn(omission,c.omission)));
 const validPolicy=p=>p&&parameters.every(([k,,lo,hi])=>Number.isFinite(p[k])&&p[k]>=lo&&p[k]<=hi)&&Math.abs(p.baselineWeight+p.activationWeight+p.importanceWeight+p.emotionWeight-1)<=1e-9;
 const validPolicyVersion=p=>p&&validVersion(p.revision)&&validDate(p.effectiveAt)&&validPolicy(p.policy)&&(p.restoredFromRevision===null||validVersion(p.restoredFromRevision));
 const samePolicy=(a,b)=>parameters.every(([k])=>a?.[k]===b?.[k]);
@@ -77,7 +78,7 @@ export function createMemoryDynamicsView(client,render,getHost) {
   function loadTraces(){
     return read('traces',query('/api/memory/traces',{characterId:host().character,offset:s.traceOffset,limit:10}),data=>{
       checkRole(data);
-      if(!Array.isArray(data.records)||![data.total,data.offset,data.limit].every(validVersion)||data.records.some(t=>t.kind!=='actual'||t.scope?.characterId!==host().character||!(t.status in traceStatuses)||!validCandidates(t.candidates)||!validVersion(t.dataRevision)||!validVersion(t.policyRevision)||!validDate(t.evaluatedAt)||!Number.isFinite(t.countedInputTokens)||!Number.isFinite(t.inputTokenBudget)))throw new Error('实际召回轨迹格式或归属不匹配，已拒绝显示。');
+      if(!Array.isArray(data.records)||![data.total,data.offset,data.limit].every(validVersion)||data.records.some(t=>t.kind!=='actual'||t.scope?.characterId!==host().character||!(t.status in traceStatuses)||!validCandidates(t.candidates)||!validVersion(t.dataRevision)||!validVersion(t.policyRevision)||!validDate(t.evaluatedAt)||!Number.isFinite(t.countedInputTokens)||!Number.isFinite(t.inputTokenBudget)||t.contextBudget!==undefined&&(!validBudgetReport(t.contextBudget)||t.contextBudget.countedInputTokens!==t.countedInputTokens||t.contextBudget.effectiveInputTokens!==t.inputTokenBudget)))throw new Error('实际召回轨迹格式或归属不匹配，已拒绝显示。');
       s.traces=data;
     });
   }
@@ -177,7 +178,7 @@ export function createMemoryDynamicsView(client,render,getHost) {
     return el('div',{class:'memory-browser'},search(),el('div',{class:'memory-list-tools'},stats,el('details',{class:'md-help'},el('summary',{},section==='fragments'?'来源说明':'记忆如何变化'),el('p',{},intro))),lookupNotice(),data?el('div',{class:'memory-workspace'},list,detail()):notice(pending('data')?'正在读取记忆…':'尚未取得记忆快照。'));
   }
   function candidates(rows){return rows.length?el('div',{class:'md-candidates'},rows.map(c=>el('article',{class:'md-candidate'},el('div',{class:'label-row'},button(reference(c.source),()=>locateSource(c.source),{'data-md-source':c.source.id,disabled:!online()||s.busy,title:'查看当前来源；不会替换这条历史或试算结果'}),badge(c.selected?'选入':omission[c.omission]||'未选入',c.selected?'success':'muted')),el('p',{class:'subtle'},`${cues[c.cueKind]} · 匹配：${c.matchedTerms.join('、')||'无'}`),definition([['相关度 C',decimal(c.relevance)],['鲜活度 A',decimal(c.activation)],['重要性 S',decimal(c.importance)],['情绪计算值 E',decimal(c.emotion)],['排序分 P',decimal(c.priority)]])))):el('p',{class:'empty'},'没有候选记录。');}
-  function traces(){const data=s.traces;return el('div',{},el('p',{class:'subtle'},'这里是实际检索记录；每条记录会标明是否已用于对话。'),button(pending('traces')?'读取中…':'刷新实际轨迹',loadTraces,{id:'md-traces-refresh',disabled:!online()||pending('traces')||s.busy}),data?el('div',{class:'section-gap'},data.records.length?data.records.map(t=>card(el('div',{class:'card-title'},'轮次 '+t.scope.turnId,badge(traceStatuses[t.status],t.status==='consumed'?'success':t.status==='invalidated'?'warning':'muted')),definition([['轨迹标识',t.id],['实际评估时间',time(t.evaluatedAt)],['会话 / 代次',t.scope.sessionId+' / '+t.scope.generation],['数据 / 策略版本',`${t.dataRevision} / ${t.policyRevision}`],['上下文用量',`${t.countedInputTokens} / ${t.inputTokenBudget} token`]]),el('details',{},el('summary',{},'查看候选与选入原因 · '+t.candidates.length+' 条'),candidates(t.candidates)))):card('实际召回轨迹',el('p',{class:'empty'},'暂时没有已保存的实际轨迹；不会用试算补成历史。')),pagination(data,'traces')):notice(pending('traces')?'正在读取实际轨迹…':'尚未取得实际轨迹。'));}
+  function traces(){const data=s.traces;return el('div',{},el('p',{class:'subtle'},'这里是实际检索记录；每条记录会标明是否已用于对话。'),button(pending('traces')?'读取中…':'刷新实际轨迹',loadTraces,{id:'md-traces-refresh',disabled:!online()||pending('traces')||s.busy}),data?el('div',{class:'section-gap'},data.records.length?data.records.map(t=>card(el('div',{class:'card-title'},'轮次 '+t.scope.turnId,badge(traceStatuses[t.status],t.status==='consumed'?'success':t.status==='invalidated'?'warning':'muted')),definition([['轨迹标识',t.id],['实际评估时间',time(t.evaluatedAt)],['会话 / 代次',t.scope.sessionId+' / '+t.scope.generation],['数据 / 策略版本',`${t.dataRevision} / ${t.policyRevision}`],...(!t.contextBudget?[['历史计数 / 容量（方法未记录）',`${t.countedInputTokens} / ${t.inputTokenBudget}`]]:[])]),contextBudgetView(t.contextBudget),el('details',{},el('summary',{},'查看候选与选入原因 · '+t.candidates.length+' 条'),candidates(t.candidates)))):card('实际召回轨迹',el('p',{class:'empty'},'暂时没有已保存的实际轨迹；不会用试算补成历史。')),pagination(data,'traces')):notice(pending('traces')?'正在读取实际轨迹…':'尚未取得实际轨迹。'));}
   function policy(){if(!s.data||!s.draft)return notice('读取记忆快照后可查看策略。');
     const problem=policyProblem(),sum=parameters.slice(2).reduce((n,[k])=>n+s.draft[k],0),p=s.data.policy;
     const edit=card('小幅调整记忆策略',el('p',{class:'subtle'},'保存后影响今后的记忆变化。可以先试算，再决定是否保存。'),definition([['当前策略','版本 '+p.revision],['生效时间',time(p.effectiveAt)]]),el('div',{class:'form-grid'},parameters.map(([key,label,min,max,step])=>field(label,'md-policy-'+key,s.draft[key],v=>changePolicy(key,v),{type:'number',min,max,step,disabled:s.busy,hint:`允许范围 ${min}–${max}`}))),el('p',{id:'md-weight-sum',class:'subtle'},'四项权重之和：'+(Number.isFinite(sum)?sum.toFixed(3):'未填写完整')),problem&&notice(problem,'warning'));

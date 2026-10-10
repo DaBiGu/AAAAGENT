@@ -1,5 +1,5 @@
 // First-time local configuration. Never calls a model or opens a device.
-import {readFile,writeFile,mkdir,readdir,realpath,stat,access,rename,unlink} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,realpath,stat,access,rename,unlink} from 'node:fs/promises';
 import {createHash,randomUUID} from 'node:crypto';
 import {resolve,relative,dirname,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -40,12 +40,12 @@ const {readPresentationCatalog}=await import('../dist/management/presentation.js
 const {RegisteredVoiceStore}=await import('../dist/providers/registered-voices.js');
 const {defaultManagedSettings,validateManagedSettings}=await import('../dist/management/settings.js');
 const {credentialRegistry}=await import('../dist/management/credentials.js');
-await readPresentationCatalog(root); // Real licensed model and matching catalog are required.
+const {collectFirstRunRuntimePins}=await import('../dist/app/runtime-pins.js');
+const {preparedWorkbenchEnvironment,verifyTrialRuntime}=await import('../dist/app/trial-launcher.js');
+await readPresentationCatalog(root); // Validate the selected video or Live2D presentation resources.
 if(process.platform!=='darwin')throw Error('The native desktop target currently requires macOS.');
-const code=resolve(root,'code/desktop-pet'),runtimeFiles={};
+const runtimeFiles=await collectFirstRunRuntimePins(root);
 const hash=b=>createHash('sha256').update(b).digest('hex');
-async function pin(base){for(const entry of await readdir(base,{withFileTypes:true})){const path=resolve(base,entry.name);if(entry.isSymbolicLink())throw Error('Runtime symlinks are not accepted');if(entry.isDirectory()){if(!['.cache','.git','node_modules'].includes(entry.name))await pin(path);}else runtimeFiles[relative(root,path)]=hash(await readFile(path));}}
-await pin(resolve(code,'dist'));await pin(resolve(code,'desktop'));
 for(const model of Object.values(input.models??{})){
   if(typeof model.credentialFile!=='string'||!isAbsolute(model.credentialFile))throw Error('Use absolute paths to your external credential files.');
   const path=await realpath(model.credentialFile),local=relative(root,path),info=await stat(path);
@@ -58,6 +58,8 @@ const config=validateTrialConfiguration({version:1,product:'companion-v1',phaseI
   // Compatibility fields are inert for user-trial; no extra trial quotas are imposed.
   phaseLimitMicros:0,maxCalls:0,operationLimits:{admission:0,dialogue:0,memory_turn:0,summary:0,perception:0,tts:0},
   models:input.models,memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000}});
+await verifyTrialRuntime(config);
+await preparedWorkbenchEnvironment(config);
 if(!input.voiceId||input.voiceId==='YOUR_AUTHORIZED_VOICE_ID'||!isAbsolute(input.voiceRegistryFile??''))
   throw Error('MiniMax needs your own authorized voice ID and genuine local registration metadata. No voice is cloned or provisioned by this tool.');
 const registryPath=await realpath(input.voiceRegistryFile),registryRelative=relative(root,registryPath);

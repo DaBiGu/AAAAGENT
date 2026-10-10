@@ -15,7 +15,7 @@ import type {BackendToDesktop} from '../../contracts/desktop-bridge.js';
 const tick=()=>new Promise<void>(r=>setImmediate(r));
 test('actual UI/backend/SQLite voice answer, spoken arrangement and collapsed-card confirmation dispatch once',async()=>{
  const {app}=await import(new URL('../../../tests/desktop/ui-harness.mjs',import.meta.url).href);
- const parent=resolve('../../.local/work-voice-15/tmp');await mkdir(parent,{recursive:true});const dir=await mkdtemp(join(parent,'wire-'));
+ const parent=resolve('../../artifacts/W0-I/work-voice-15/tmp');await mkdir(parent,{recursive:true});const dir=await mkdtemp(join(parent,'wire-'));
  const ui=await app({explicitRouting:true}),media=new MemoryMediaStore(),out:BackendToDesktop[]=[],errors:unknown[]=[],companion:string[]=[],spoken:string[]=[];
  const receipts=new ForwardReceipts(join(dir,'harness-relay.sqlite')),projects=new SqliteProjectIndex(join(dir,'project-index.sqlite'));
  const target=randomUUID();let sends=0,prompts=0,plans=0,interpretPosts=0,asr='在合成项目做同样任务',uiIndex=0,outIndex=0;

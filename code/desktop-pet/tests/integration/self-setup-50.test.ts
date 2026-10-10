@@ -36,7 +36,7 @@ async function fixture(t:test.TestContext){
  }
  return {root,calls,authorizations,options,request,get service(){return service;},setRefusal:(value:boolean)=>refusal=value,async restart(){await service.close();service=await startFirstRunSetup(root,options);}};
 }
-const key='sk-fixture-only';
+const key='sk-synthetic-not-a-real-key';
 test('real loopback first-run works with zero keys, config, voice or assets; metadata view does not call cloud or create user data',async t=>{
  const f=await fixture(t),s=await f.request();assert.equal(s.status,200);assert.equal(s.value.mode,'first-run');assert.ok(s.value.credentials.every((c:any)=>c.status==='missing'));
  assert.equal(s.value.budget.mode,'unlimited');assert.equal(s.value.budget.limitMicros,null);assert.equal(s.value.operations.length,0);assert.equal(s.value.references.length,0);assert.equal(s.value.initialization.completed,false);assert.ok(s.value.initialization.blockers.length>=2);
@@ -105,7 +105,7 @@ test('synthetic finish produces pinned prepared config and original activation C
  const settings=s.settings.saved;for(const p of Object.values(settings.providers) as any[])p.credentialRef=p.provider==='deepseek'?deepseek.credentialRef:dashscope.credentialRef;
  assert.equal((await f.request('/settings',{instanceId,expectedRevision:0,settings},'PUT')).status,200);
  const code=resolve(f.root,'code/desktop-pet'),sourceCode=fileURLToPath(new URL('../../../',import.meta.url));await mkdir(code,{recursive:true});
- await cp(resolve(sourceCode,'dist'),resolve(code,'dist'),{recursive:true});await cp(resolve(sourceCode,'tools'),resolve(code,'tools'),{recursive:true});await writeFile(resolve(code,'package.json'),JSON.stringify({type:'module'}));
+ await cp(resolve(sourceCode,'dist'),resolve(code,'dist'),{recursive:true});await writeFile(resolve(code,'package.json'),JSON.stringify({type:'module'}));
  await symlink(resolve(sourceCode,'node_modules'),resolve(code,'node_modules'),'dir');
  const asset=resolve(code,'desktop/assets/local-model'),manifest=JSON.stringify({FileReferences:{Moc:'synthetic.moc3',Expressions:[],Motions:{}}}),moc='synthetic-not-a-live-model';
  await mkdir(asset,{recursive:true});await writeFile(resolve(asset,'pet.model3.json'),manifest);await writeFile(resolve(asset,'synthetic.moc3'),moc);
@@ -116,7 +116,7 @@ test('synthetic finish produces pinned prepared config and original activation C
  const ready=await f.request('/finish',{instanceId,expectedRevision:1});assert.equal(ready.status,200,JSON.stringify(ready));assert.equal(ready.value.status,'prepared');
  const dir=resolve(f.root,'.local/model-evaluation/trial/user-trial'),configBefore=await readFile(resolve(dir,'config.json'),'utf8');
  assert.equal(JSON.parse(await readFile(resolve(dir,'activation.json'),'utf8')).status,'prepared');assert.equal(JSON.parse(configBefore).limitMicros,null);
- const template=await readFile(resolve(sourceCode,'tools/configure-local.mjs'),'utf8');await mkdir(resolve(code,'tools'),{recursive:true});
+ const template=await readFile(resolve(sourceCode,'tools/configure-local.mjs'),'utf8');await mkdir(resolve(code,'tools'));
  await writeFile(resolve(code,'tools/configure-local.mjs'),template);
  execFileSync(process.execPath,[resolve(code,'tools/configure-local.mjs'),'--activate-existing'],{timeout:20000,stdio:'pipe'});
  assert.equal(JSON.parse(await readFile(resolve(dir,'activation.json'),'utf8')).status,'active');assert.equal(await readFile(resolve(dir,'config.json'),'utf8'),configBefore);assert.equal(f.calls.length,0);

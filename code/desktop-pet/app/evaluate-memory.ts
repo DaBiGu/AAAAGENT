@@ -13,13 +13,13 @@ import { ProviderTransport } from '../providers/transport.js';
 export async function evaluateMemory(root: string, credentialFile: string, options: { runId?: string; onlyAdd?: boolean } = {}): Promise<void> {
   const runId = options.runId ?? 'memory-live-v1';
   if (!/^memory-[a-z0-9-]+$/.test(runId)) throw new Error('Invalid evaluation run ID');
-  const out = `${root}/.local/${runId}`;
+  const out = `${root}/artifacts/W0-I/${runId}`;
   await mkdir(out, { recursive: true });
   const source = await readFile(credentialFile, 'utf8');
   const section = source.match(/^## Qwen \/ DashScope\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1];
   const keys = section?.match(/sk-[A-Za-z0-9_-]+/g) ?? [];
   if (keys.length !== 1) throw new Error('Credential section ambiguous');
-  const lockPath = `${root}/.local/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx', 0o600);
+  const lockPath = `${root}/artifacts/W0-I/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx', 0o600);
   await lock.writeFile(JSON.stringify({ pid: process.pid, purpose: 'silent_memory_evaluation' }) + '\n');
   let rawModelText: unknown = null;
   class SyntheticEvidenceTransport extends ProviderTransport {
@@ -31,7 +31,7 @@ export async function evaluateMemory(root: string, credentialFile: string, optio
       return result;
     }
   }
-  const provider = new QwenMemoryMaintenanceProvider({ endpoint: CHAT_ENDPOINT, model: EVALUATION_MODELS.memory_maintenance, apiKey: () => keys[0]!, authorizer: new IntegratedEvaluationAuthorizer(`${root}/.local/model-evaluation`) }, new SyntheticEvidenceTransport());
+  const provider = new QwenMemoryMaintenanceProvider({ endpoint: CHAT_ENDPOINT, model: EVALUATION_MODELS.memory_maintenance, apiKey: () => keys[0]!, authorizer: new IntegratedEvaluationAuthorizer(`${root}/artifacts/W0-I/model-evaluation`) }, new SyntheticEvidenceTransport());
   const reports: Record<string, unknown>[] = [];
   const scope = (turnId: string): TurnScope => ({ characterId: 'friend', sessionId: 'synthetic-memory-evaluation', turnId, generation: 1 });
   const createStore = (name: string) => new SqliteMemoryStore({ filename: `${out}/${name}.sqlite`, retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai') });

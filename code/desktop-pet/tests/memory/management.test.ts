@@ -18,7 +18,7 @@ import { scope, message, change, seed, NOW } from './sqlite-fixture.js';
 const receipts:unknown[]=[];
 after(()=>{if(process.env.W3_MANAGEMENT_RECEIPT)writeFileSync(process.env.W3_MANAGEMENT_RECEIPT,JSON.stringify({evidence:'ManagementMemoryPort + real synthetic SQLite; no HTTP/UI/model/device claim',receipts},null,2)+'\n');});
 function fixture(maxBytes=CONFIRMED_RETENTION.transcriptMaxBytes) {
-  const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../.local/companion-step1-01/tmp');
+  const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../artifacts/W3/companion-step1-01/tmp');
   mkdirSync(parent,{recursive:true});const directory=mkdtempSync(join(parent,'case-')),filename=join(directory,'pet.sqlite');
   let now=NOW;const stores:SqliteMemoryStore[]=[];
   return {filename,setTime(value:string){now=value;},open(){const store=new SqliteMemoryStore({filename,retention:{...CONFIRMED_RETENTION,transcriptMaxBytes:maxBytes},invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=>now});stores.push(store);return store;},cleanup(){for(const store of stores)store.close();rmSync(directory,{recursive:true,force:true});}};
@@ -90,11 +90,13 @@ test('raw edit persists manual origin, invalidates old dependent memory and repl
 
 test('manual assistant becomes labelled human evidence; exact partial retention keeps manual root while automatic derivatives do not',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open(),owned=scope();
-  store.append(owned,[replyMessage(owned,'未经证明的旧助手猜测')]);
+  store.append(owned,[message('turn-1:user','聊聊喜好'),replyMessage(owned,'未经证明的旧助手猜测')]);
   const port=lifecycle(store),api=new SqliteManagementMemoryPort(store,port);
-  assert.equal((await api.context('companion','喜好')).recent.length,0);
+  assert.deepEqual((await api.context('companion','喜好')).recent.map(row=>row.id),['turn-1:user']);
   api.edit(edit('turn-1:assistant','我喜欢种花，也喜欢游泳'));
-  const labelled=await api.context('companion','喜好');assert.equal(labelled.recent[0]!.origin,'manual');assert.equal(labelled.recent[0]!.role,'assistant');assert.deepEqual(labelled.recent[0]!.sources,[]);
+  const labelled=await api.context('companion','喜好'),manual=labelled.recent.find(row=>row.id==='turn-1:assistant')!;
+  assert.equal(manual.origin,'manual');assert.equal(manual.role,'assistant');assert.deepEqual(manual.sources,[]);
+  assert.deepEqual(labelled.recent.map(row=>row.id),['turn-1:user','turn-1:assistant']);
   const later=scope('companion','forget');await port.append(later,[message('forget','忘记种花')]);
   let captured!:MemoryTurnInput;
   const resolver=lifecycle(store,async input=>{

@@ -7,7 +7,7 @@ import { SqliteMemoryStore } from './sqlite-store.js';
 
 export interface SqliteLifecycleOptions {
   readonly context: SqliteContextOptions;
-  readonly turn: InputBudget<MemoryTurnInput> & { readonly provider: MemoryTurnProvider; readonly maxSupplementaryPlans?: 0 | 1 };
+  readonly turn: InputBudget<MemoryTurnInput> & { readonly provider: MemoryTurnProvider; readonly maxSupplementaryPlans?: 0 | 1; readonly readLimits?: Pick<SqliteContextOptions,'maxRecentMessages'|'maxMemories'|'summaryLimit'> };
   readonly summary: SummaryReadOptions & { readonly provider: SummaryProvider };
 }
 /** No hidden scheduler or generation configuration. The application queues the original role and supplies providers. */
@@ -16,11 +16,12 @@ export class SqliteLifecycleMemoryPort extends SqliteMemoryPort implements Backg
     super(store, lifecycleOptions.context, legacyMaintenanceProvider);
     store.lifecycle.assertReady();
     if(![0,1].includes(lifecycleOptions.turn.maxSupplementaryPlans??0))throw new Error('invalid_supplementary_plan_limit');
-    for (const n of [lifecycleOptions.turn.inputTokenBudget,lifecycleOptions.summary.inputTokenBudget,lifecycleOptions.summary.minMessages,lifecycleOptions.summary.maxMessages,lifecycleOptions.context.maxRecentMessages]) {
+    const readLimits=lifecycleOptions.turn.readLimits??lifecycleOptions.context;
+    for (const n of [lifecycleOptions.turn.inputTokenBudget,lifecycleOptions.summary.inputTokenBudget,lifecycleOptions.summary.minMessages,lifecycleOptions.summary.maxMessages,readLimits.maxRecentMessages]) {
       if (!Number.isSafeInteger(n) || n <= 0) throw new Error('invalid_lifecycle_configuration');
     }
     if (lifecycleOptions.summary.maxMessages < lifecycleOptions.summary.minMessages) throw new Error('invalid_summary_threshold');
-    for (const n of [lifecycleOptions.context.maxMemories, lifecycleOptions.context.summaryLimit]) {
+    for (const n of [readLimits.maxMemories, readLimits.summaryLimit]) {
       if (!Number.isSafeInteger(n) || n < 0) throw new Error('invalid_lifecycle_configuration');
     }
   }
@@ -35,7 +36,7 @@ export class SqliteLifecycleMemoryPort extends SqliteMemoryPort implements Backg
     const prior = this.store.lifecycle.outcome(owned, currentMessageId, text);
     if (prior) {if(registerForeground)this.store.lifecycle.registerCurrent(owned,currentMessageId,text,prior);return prior;}
     let ticket;
-    try {ticket=this.store.lifecycle.readTurn(owned,currentMessageId,text,{...this.lifecycleOptions.context,...this.lifecycleOptions.turn});}
+    try {ticket=this.store.lifecycle.readTurn(owned,currentMessageId,text,{...(this.lifecycleOptions.turn.readLimits??this.lifecycleOptions.context),...this.lifecycleOptions.turn});}
     catch(error){if(!(error instanceof MemoryRuleError))throw error;this.store.pending.fail(owned,currentMessageId);return {scope:owned,request:'none',status:'rejected',results:[],affectedIds:[],retrievalInvalidated:false,clarification:null,rejectionCode:error.message};}
     try {
       checkAbort(signal);
@@ -67,7 +68,7 @@ export class SqliteLifecycleMemoryPort extends SqliteMemoryPort implements Backg
   async foregroundContext(scope:TurnScope,currentMessageId:string,text:string,perception:PerceptionResult|null,signal:AbortSignal):Promise<DialogueContext> {
     checkAbort(signal);const owned=bindScope(scope,scope.characterId);
     const completedPending=this.store.lifecycle.registerForegroundCurrent(owned,currentMessageId,text);
-    return this.store.lifecycle.trackContext(this.createContext(owned,text,perception,signal,completedPending),text,true);
+    return this.store.lifecycle.trackContext(this.createContext(owned,text,perception,signal,completedPending,currentMessageId),text,true);
   }
   override async append(scope:TurnScope,messages:readonly ConversationMessage[]):Promise<void> {
     if(messages.some(message=>message.role==='assistant'))throw new MemoryRuleError('assistant_requires_issued_context');

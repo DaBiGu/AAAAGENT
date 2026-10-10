@@ -16,7 +16,7 @@ const signal=new AbortController().signal,auth:WeChatCredentials={token:'synthet
 const json=(v:unknown)=>new Response(JSON.stringify(v));
 const blocked=(s:AbortSignal)=>new Promise<Response>((_,reject)=>{s.addEventListener('abort',()=>reject(s.reason),{once:true});if(s.aborted)reject(s.reason);});
 async function until(p:()=>boolean){for(let n=0;n<200;n++){if(p())return;await sleep(5);}assert.fail('Expected controlled state');}
-function root(t:import('node:test').TestContext){const parent=resolve('../../.local/wechat-voice-input-25/tmp');mkdirSync(parent,{recursive:true});const r=mkdtempSync(join(realpathSync(parent),'integration-'));t.after(()=>rmSync(r,{recursive:true,force:true}));return r;}
+function root(t:import('node:test').TestContext){const parent=resolve('../../artifacts/W0-I/wechat-voice-input-25/tmp');mkdirSync(parent,{recursive:true});const r=mkdtempSync(join(realpathSync(parent),'integration-'));t.after(()=>rmSync(r,{recursive:true,force:true}));return r;}
 const message=(id:string,item_list:unknown[],extra={})=>({message_id:id,from_user_id:'user',to_user_id:'bot',message_type:1,message_state:2,context_token:'context',item_list,...extra});
 
 test('official transcript bypass, failed audio isolation, durable policy and snapshot-frozen reply routing',async t=>{

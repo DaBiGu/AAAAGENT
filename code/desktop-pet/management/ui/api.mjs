@@ -3,10 +3,11 @@ export class ApiError extends Error {
 }
 export class ManagementClient {
   constructor(token, transport=globalThis.fetch.bind(globalThis)) { this.token=token; this.transport=transport; }
-  async request(path, {method='GET',body,signal}={}) {
+  async request(path, {method='GET',body,signal,credentials='omit'}={}) {
     if(!path.startsWith('/api/'))throw new Error('管理请求必须使用同源接口');
+    if(credentials!=='omit'&&(credentials!=='same-origin'||!((path==='/api/native-mount/session'&&method==='POST')||path==='/api/workbench/native-open'||path==='/api/workbench/focus'||path.startsWith('/api/workbench/focus?')||path==='/api/workbench/continuations'||path.startsWith('/api/workbench/continuations?')||path==='/api/workbench/continuation'||path.startsWith('/api/workbench/continuation?')||path.startsWith('/api/workbench/continuation/'))))throw new Error('仅工作台焦点与续接请求可携带同源浏览器标识');
     let response;
-    try {response=await this.transport(path,{method,signal,redirect:'error',credentials:'omit',cache:'no-store',headers:{Authorization:`Bearer ${this.token}`,Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
+    try {response=await this.transport(path,{method,signal,redirect:'error',credentials,cache:'no-store',headers:{Authorization:`Bearer ${this.token}`,Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
     catch(e){if(e.name==='AbortError')throw e;throw new ApiError('无法连接本机服务。当前显示的旧快照不能代表实时状态。')}
     let data;try{data=await response.json()}catch{throw new ApiError('服务返回了无法识别的内容。',response.status)}
     if(!response.ok)throw new ApiError(data?.error?.message||'请求未完成。',response.status,data?.error?.code);

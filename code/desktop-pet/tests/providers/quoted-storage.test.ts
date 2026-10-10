@@ -23,7 +23,7 @@ const ordered = <T extends { readonly id: string }>(rows: readonly T[]) => [...r
 const normalized = (value: MemoryTurnInput) => ({ ...value, sources: ordered(value.sources), messages: ordered(value.messages), relevantMemories: ordered(value.relevantMemories) });
 export function quotedUpperBound(value: MemoryTurnInput) { const f = buildMemoryTurnFormat(value, 'quoted-v2'); return Buffer.byteLength(JSON.stringify(f.data)) + Buffer.byteLength(f.system) + 2048; }
 function restored(t: TestContext, input: MemoryTurnInput, records: readonly MemoryRecord[]) {
-  const parent = fileURLToPath(new URL('../../../../../.local/quoted-v2/tmp/', import.meta.url)); mkdirSync(parent, { recursive: true });
+  const parent = fileURLToPath(new URL('../../../../../artifacts/W2/quoted-v2/tmp/', import.meta.url)); mkdirSync(parent, { recursive: true });
   const directory = mkdtempSync(`${parent}case-`), filename = `${directory}/test.sqlite`;
   const now = input.sources.find(s => s.id === input.currentMessageId)!.createdAt;
   const store = new SqliteMemoryStore({ filename, retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai'), clock: () => now });

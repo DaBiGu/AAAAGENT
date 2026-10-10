@@ -29,7 +29,7 @@ const upperBound = (value: MemoryTurnInput) => { const f = buildMemoryTurnFormat
 const current = (value: MemoryTurnInput) => value.sources.find(s => s.id === value.currentMessageId)!;
 
 function restore(t: TestContext, f: BoundedOriginal) {
-  const parent = fileURLToPath(new URL('../../../../../.local/bounded-prompt/tmp/', import.meta.url));
+  const parent = fileURLToPath(new URL('../../../../../artifacts/W2/bounded-prompt/tmp/', import.meta.url));
   mkdirSync(parent, { recursive: true });
   const directory = mkdtempSync(`${parent}case-`), filename = `${directory}/test.sqlite`;
   const store = new SqliteMemoryStore({ filename, retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai'), clock: () => current(f.input).createdAt });

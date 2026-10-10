@@ -9,7 +9,7 @@ import {ManagementError} from '../../contracts/management.js';
 import type {ProjectIndexSave} from '../../contracts/projects.js';
 
 function fixture(t:TestContext) {
- const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../.local/harness-bridge-10/tmp');mkdirSync(parent,{recursive:true});
+ const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../artifacts/W3/harness-bridge-10/tmp');mkdirSync(parent,{recursive:true});
  const root=mkdtempSync(join(parent,'case-')),file=join(root,'project-index.sqlite'),stores:SqliteProjectIndex[]=[];
  const open=()=>{const store=new SqliteProjectIndex(file);stores.push(store);return store;};
  t.after(async()=>{for(const store of stores)await store.close();rmSync(root,{recursive:true,force:true});});return {root,file,open};

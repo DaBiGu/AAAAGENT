@@ -37,11 +37,10 @@ export class SqliteMemoryRecall {
       return {source:{id:record.id,version:record.version},activation,importance,emotion,relevance,priority:score,matchedTerms:cue?.matchedKeywords??[],cueKind,selected:omission===null,omission,
         ...(emotionAffinity===undefined?{}:{emotionAffinity})} as MemoryRecallCandidate;
     }).sort((a,b)=>b.priority-a.priority||(b.emotionAffinity??0)-(a.emotionAffinity??0)||a.source.id.localeCompare(b.source.id));
-    let selected=0;
-    return ranked.map(candidate=>candidate.selected&&++selected>6?{...candidate,selected:false,omission:'limit'}:candidate);
+    return ranked;
   }
   references(scope:TurnScope,candidates:readonly MemoryRecallCandidate[]):readonly MemoryReference[] {
-    return candidates.filter(item=>item.omission===null||item.omission==='limit').map(item=>{
+    return candidates.filter(item=>item.omission===null).map(item=>{
       const record=this.store.inspect(scope,item.source.id)!;
       return {characterId:scope.characterId,id:record.id,version:record.version,text:record.text,sourceIds:record.sources.map(ref=>ref.id),...(record.origin?{origin:record.origin}:{})};
     });
@@ -87,10 +86,10 @@ export class SqliteMemoryRecall {
     const selected=new Set(context.memories.map(item=>item.id));
     const candidates=assembly.candidates.map(candidate=>{
       if(selected.has(candidate.source.id))return {...candidate,selected:true,omission:null};
-      if(candidate.omission===null||candidate.omission==='limit')return {...candidate,selected:false,omission:selected.size>=6?'limit' as const:'budget' as const};
+      if(candidate.omission===null||candidate.omission==='limit')return {...candidate,selected:false,omission:'budget' as const};
       return candidate;
     });
-    const trace:MemoryRecallTrace={id:randomUUID(),kind:'actual',scope:context.scope,dataRevision:assembly.dataRevision,policyRevision:assembly.policyRevision,evaluatedAt:assembly.evaluatedAt,candidates,countedInputTokens:snapshot.countedInputTokens,inputTokenBudget:context.inputTokenBudget,status:'assembled',
+    const trace:MemoryRecallTrace={id:randomUUID(),kind:'actual',scope:context.scope,dataRevision:assembly.dataRevision,policyRevision:assembly.policyRevision,evaluatedAt:assembly.evaluatedAt,candidates,countedInputTokens:snapshot.countedInputTokens,inputTokenBudget:context.inputTokenBudget,status:'assembled',...(context.contextBudget?{contextBudget:context.contextBudget}:{}),
       recentContext:{messageIds:context.recent.map(m=>m.id),omittedIds:snapshot.omittedIds.filter(id=>this.store.inspect(context.scope,id)?.kind==='transcript'),policy:snapshot.privacyExcluded?'post_privacy_boundary':'normal'}};
     // Include query provenance and unselected scored records: they may contain forgotten matched terms.
     const refs=new Map([...sources,...(current?[current]:[]),...candidates.filter(item=>item.omission!=='hard_gate').map(item=>item.source)].map(ref=>[ref.id,ref]));
@@ -111,8 +110,13 @@ export class SqliteMemoryRecall {
     for(const row of rows) {
       const trace=JSON.parse(row.payload_json) as MemoryRecallTrace;if(trace.status==='invalidated')continue;
       if((JSON.parse(row.sources_json) as SourceVersion[]).some(ref=>{const record=this.store.inspect(owned(row.character_id),ref.id);return !record||record.state!=='active'||record.version!==ref.version;}))
-        this.db.prepare('UPDATE memory_recall_trace SET payload_json=?,sources_json=? WHERE id=?').run(JSON.stringify({...trace,status:'invalidated',candidates:[]}), '[]',row.id);
+        this.db.prepare('UPDATE memory_recall_trace SET payload_json=?,sources_json=? WHERE id=?').run(JSON.stringify(this.redactedTrace(trace)), '[]',row.id);
     }
+  }
+  private redactedTrace(trace:MemoryRecallTrace):MemoryRecallTrace {
+    // The new budget omissions may refer to forgotten candidates. Drop that
+    // derived report along with the existing scored candidates on invalidation.
+    const {contextBudget:_,...legacy}=trace;return {...legacy,status:'invalidated',candidates:[]};
   }
   traces(query:{characterId:TurnScope['characterId'];offset:number;limit:number}):MemoryRecallTracePage {
     const scope=owned(query.characterId);paginate(query.offset,query.limit);
@@ -122,7 +126,7 @@ export class SqliteMemoryRecall {
       return {characterId:scope.characterId,total,offset:query.offset,limit:query.limit,records:rows.map(row=>{
         const trace=JSON.parse(row.payload_json) as MemoryRecallTrace;
         const valid=(JSON.parse(row.sources_json) as SourceVersion[]).every(ref=>{const record=this.store.inspect(scope,ref.id);return record?.state==='active'&&record.version===ref.version;});
-        return valid?trace:{...trace,status:'invalidated' as const,candidates:[]};
+        return valid?trace:this.redactedTrace(trace);
       })};
     })();
   }

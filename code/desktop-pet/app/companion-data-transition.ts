@@ -49,7 +49,7 @@ export async function assertNewCompanionDataAbsent(root: string): Promise<void> 
   for (const suffix of ['', '-wal', '-shm']) if (await regular(root, companionDatabaseFile(root) + suffix)) fail();
 }
 function receiptFile(root: string, transition: LegacyDataTransition) {
-  return resolve(root, '.local/companion-step1-01/update', transition.id + '.json');
+  return resolve(root, 'artifacts/W0-I/companion-step1-01/update', transition.id + '.json');
 }
 function signature(root: string, transition: LegacyDataTransition, nextHash: string) {
   validate(transition); if (!hash(nextHash)) fail();

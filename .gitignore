@@ -49,3 +49,16 @@ id_ed25519*
 
 # Apple device artwork has no established redistribution license (see adjacent NOTICE).
 **/components/device/models/*.glb
+
+# Public Mac source: private/generated assets remain local.
+/code/desktop-pet/management/ui/presentation-preview.js
+/t3-source/.aaa-native-ui.json
+/code/workbench/integration/engine-pins/macos-t3-source.json
+*.7z
+/t3-source/apps/web/src/terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2
+
+# Four reviewed T3 CC0 UI sounds; see the adjacent source/attribution notice.
+!/t3-source/apps/web/src/assets/notification-completion.mp3
+!/t3-source/apps/web/src/assets/notification-input.mp3
+!/t3-source/apps/web/src/assets/snap-shot-click.mp3
+!/t3-source/apps/web/src/assets/snap-shot-whoosh.mp3

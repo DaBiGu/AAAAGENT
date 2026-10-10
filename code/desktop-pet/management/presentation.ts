@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { ManagementError } from '../contracts/management.js';
 import type { PresentationCatalog, PresentationPolicy, PresentationControls } from '../contracts/presentation-presets.js';
 import { PRESENTATION_EMOTIONS, PRESENTATION_GESTURES } from '../contracts/presentation.js';
+import { readVideoPresentation } from './video-presentation.js';
 const idPattern = /^[a-zA-Z0-9_-]{1,100}$/;
 const fail = (message: string): never => { throw new ManagementError('invalid_request', message); };
 export function validatePresentationCatalog(value: unknown): PresentationCatalog {
@@ -28,7 +29,14 @@ export function validatePresentationCatalog(value: unknown): PresentationCatalog
 }
 export async function readPresentationCatalog(projectRoot: string): Promise<PresentationCatalog> {
   const base = resolve(projectRoot, 'code/desktop-pet/desktop/assets/local-model');
-  const manifest = await readFile(resolve(base, 'pet.model3.json'));
+  let manifest: Buffer;
+  try { manifest = await readFile(resolve(base, 'pet.model3.json')); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const video = await readVideoPresentation(projectRoot);
+    if (video) return validatePresentationCatalog(video.catalog);
+    throw error;
+  }
   const catalog = validatePresentationCatalog(JSON.parse(await readFile(resolve(base, 'presets.json'), 'utf8')));
   const refs = JSON.parse(manifest.toString('utf8')).FileReferences;
   const paths = [...new Set(['pet.model3.json', refs.Moc, refs.Physics, ...refs.Expressions.map((x: { File: string }) => x.File), ...Object.values(refs.Motions as Record<string, { File: string }[]>).flat().map(x => x.File)].filter(Boolean))] as string[];

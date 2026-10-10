@@ -23,7 +23,7 @@ test.after(() => {
 });
 
 function fixture() {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/companion-step1-01/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W3/companion-step1-01/tmp');
   mkdirSync(parent, {recursive:true});
   const directory = mkdtempSync(join(parent, 'case-'));
   const filename = join(directory, 'pet.sqlite');
@@ -50,7 +50,7 @@ test('new product version-two fact survives reopen and reaches context without i
   const first=await port(store).context(scope(),query,null,signal());assert.deepEqual(first.memories,[expected]);
   store.close();store=f.open();
   const reopened=await port(store,{maxRecentMessages:0}).context({...scope(),sessionId:'new-session'},query,null,signal());
-  assert.deepEqual(reopened.memories,[expected]);assert.deepEqual(reopened.recent,[]);assert.equal(reopened.summary,'');
+  assert.deepEqual(reopened.memories,[expected]);assert.deepEqual(reopened.recent.map(m=>m.id),['job:raw','confirmed']);assert.equal(reopened.summary,'');
   assert.ok(contextInputUpperBound(reopened,query)<=options.inputTokenBudget);
   evidence.push({case:'new-product-v2-reopen',first,reopened,oldDatabaseInputs:0});
 });
@@ -112,7 +112,7 @@ test('newer record creation cannot turn explicit past or future employment into 
   evidence.push({case:'creation-time-is-not-event-truth',records,context});
 });
 
-test('recall survives 32 unrelated user/assistant turns, new session and reopen without recent or summary help',async t=>{
+test('recall survives 32 unrelated turns, new session and reopen while legacy counts do not trim foreground history',async t=>{
   const f=fixture();t.after(f.cleanup);let store=f.open();const expected=seed(store,originalText);
   for(let i=0;i<32;i++)store.append(scope('companion',`other-${i}`),[
     message(`u-${i}`,`今天读一本小说 ${i}`),{...message(`a-${i}`,`聊聊书中的人物 ${i}`),role:'assistant'},
@@ -120,10 +120,11 @@ test('recall survives 32 unrelated user/assistant turns, new session and reopen 
   store.close();store=f.open();const owned={...scope(),sessionId:'after-32-turns'};
   const normal=await port(store).context(owned,query,null,signal());
   const isolated=await port(store,{maxRecentMessages:0}).context(owned,query,null,signal());
-  assert.equal(normal.recent.length,24);assert.ok(normal.recent.every(m=>!m.text.includes('青禾')));
+  assert.equal(normal.recent.length,33);assert.equal(normal.recent[0]!.id,'job:raw');
+  assert.ok(normal.recent.slice(1).every(m=>!m.text.includes('青禾')));
   assert.deepEqual(normal.memories,[expected]);assert.deepEqual(isolated.memories,[expected]);
-  assert.deepEqual(isolated.recent,[]);assert.equal(isolated.summary,'');
-  evidence.push({case:'outside-recent',unrelatedTurns:32,normal,isolated});
+  assert.deepEqual(isolated.recent,normal.recent);assert.equal(isolated.summary,'');
+  evidence.push({case:'unbounded-foreground-history',unrelatedTurns:32,normal,isolated});
 });
 
 test('companion survives raw expiry and independent process recall; legacy colliding IDs are refused',async t=>{
@@ -220,15 +221,15 @@ test('approved priority controls ordinary context despite legacy relevance callb
   evidence.push({case:'candidate-and-context-limits',distractors:40,searchOrder,normal,limited,oneBudget,relevance,literal,limitation:'context may omit an eligible candidate under a tight budget; search order is not issued order'});
 });
 
-test('qualified employment candidates survive forty distractors under the approved six-memory ceiling',async t=>{
+test('qualified employment candidates survive forty distractors without a foreground quantity cap',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();const relation=seed(store,originalText,'z-relation');const strong=seed(store,'用户在清泉公司工作。','a-strong');
   for(let i=0;i<40;i++)seed(store,`用户喜欢收藏手工作品 ${i}`,`noise-${i}`);
   const two=store.search(scope(),query,2,'lexical');assert.deepEqual(two,[strong,relation]);
   const context=await port(store,{maxRecentMessages:0}).context(scope(),query,null,signal());
   assert.equal(context.memories.length,2);assert.deepEqual(context.memories.find(m=>m.id==='z-relation'),relation);
-  assert.deepEqual(context.memories.find(m=>m.id==='a-strong'),strong);assert.deepEqual(context.recent,[]);assert.equal(context.summary,'');
+  assert.deepEqual(context.memories.find(m=>m.id==='a-strong'),strong);assert.equal(context.recent.length,42);assert.equal(context.summary,'');
   assert.ok(contextInputUpperBound(context,query)<=options.inputTokenBudget);
-  evidence.push({case:'original-strong-lexical-crowding-repaired',distractors:40,two,context,relationOmitted:false,remainingLimit:'incidental lexical records can still occupy remaining slots; candidate presence does not establish employer truth'});
+  evidence.push({case:'original-strong-lexical-crowding-repaired',distractors:40,two,context,relationOmitted:false,interpretation:'all qualified candidates fit the foreground budget; lexical presence alone does not establish employer truth'});
 });
 
 test('workplace occupations generalize across units and duties while activities and whole-record qualifiers stay excluded',async t=>{
@@ -246,7 +247,7 @@ test('workplace occupations generalize across units and duties while activities 
   for(const [i,text] of negatives.entries())seed(store,text,`negative-${i}`);
   const question='我在哪儿上班？';
   const context=await port(store,{maxRecentMessages:0}).context(scope(),question,null,signal());
-  assert.deepEqual(context.memories,positive);assert.deepEqual(context.recent,[]);assert.equal(context.summary,'');
+  assert.deepEqual(context.memories,positive);assert.equal(context.recent.length,positive.length+negatives.length);assert.equal(context.summary,'');
   evidence.push({case:'workplace-occupation-generalization',question,positive,negatives,context});
 });
 
@@ -258,7 +259,7 @@ test('maintenance lexical order remains separate from approved relation-score ti
   f.setTime('2026-09-07T12:00:00.000Z');
   const future=seed(store,'用户计划在天际公司工作。','future');const incidental=seed(store,'用户收藏手工艺。','incidental');
   assert.deepEqual(store.search(scope(),query,3,'lexical'),[strongest,occupation,join]);
-  assert.deepEqual((await port(store,{maxRecentMessages:0,maxMemories:1}).context(scope(),query,null,signal())).memories,[join]); // Equal relation scores use stable ID order.
+  assert.deepEqual((await port(store,{maxRecentMessages:0,maxMemories:1}).context(scope(),query,null,signal())).memories,[join,occupation,strongest,future]); // Equal relation scores use stable ID order; legacy quantity caps are ignored.
   assert.deepEqual(ids(store.search(scope(),'公司',32)).sort(),['future','occupation','strongest']);
   assert.deepEqual(store.search(scope(),'手工艺',32),[incidental]);
   // Preserve ordinary lexical behavior, including pre-existing low-weight 工 matches.
@@ -268,6 +269,6 @@ test('maintenance lexical order remains separate from approved relation-score ti
   const quoted=seed(store,`用户记下了问题：${query}`,'quoted-question');
   assert.deepEqual(store.search(scope(),query,1),[quoted]);assert.deepEqual(store.search(scope(),query,1,'lexical'),[quoted]);
   const context=await port(store,{maxRecentMessages:0,maxMemories:1}).context(scope(),query,null,signal());
-  assert.deepEqual(context.memories,[quoted]);
+  assert.deepEqual(context.memories,[quoted,join,occupation,strongest,future]);
   evidence.push({case:'qualified-competition-and-literal',ranked:[strongest,occupation,join],future,incidental,quotedExactContext:context,interpretation:'full-query quotation remains an exact hit, not an employer assertion'});
 });

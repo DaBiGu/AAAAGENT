@@ -4,6 +4,11 @@ import { join, isAbsolute } from 'node:path';
 export const RELAY_PRESET_ID = 'desktop-pet-relay-v1';
 const presetName = (id: string) => { if (!/^desktop-pet-relay-v1(?:-trial-[a-f0-9]{8})?$/.test(id)) throw Error('Invalid relay preset identity'); return id; };
 export interface RelayPresetLocation { dshHome: string; projectRoot: string; nodeExecutable: string; managementDescriptor: string }
+/** DSH 0.2 Host presets are declarative rows; reuse the exact existing role compositions. */
+export function nativePresetHostOverlay(location: RelayPresetLocation): string {
+  const row = (id: string, content: string) => `    - id: aaaagent-${id}\n      name: '@deepseek-ai/dsh-agent-preset'\n      config:\n        id: ${id}\n        name: ${id}\n        plugins:\n` + content.trimEnd().split('\n').map(line => '          ' + line).join('\n') + '\n';
+  return '- insert:\n' + row(RELAY_PRESET_ID, relayPresetContents(location)) + row('desktop-pet-work-v1', WORK_PRESET_CONTENTS);
+}
 export function relayPresetContents(location: RelayPresetLocation): string {
   for (const value of Object.values(location)) if (!isAbsolute(value) || value.includes('\0') || value.includes('\n')) throw Error('Invalid relay location');
   return `- id: persona

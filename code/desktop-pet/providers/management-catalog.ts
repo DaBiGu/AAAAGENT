@@ -1,4 +1,4 @@
-import { deepseekFlashModel, TEXT_SLOTS } from './text-protocol.js';
+import { deepseekFlashModel, deepseekFlashDialogueModel, TEXT_SLOTS } from './text-protocol.js';
 import type { TrialConfiguration, TrialModel } from '../app/trial-config.js';
 import type { ProviderAdapterInfo, ProviderSelection, ProviderSlot } from '../contracts/management.js';
 import type { RegisteredVoice } from './registered-voices.js';
@@ -17,7 +17,7 @@ const identities: Record<ProviderSlot, [string, string]> = {
 };
 
 // Reviewed 2026-09-10, Beijing tariffs. CNY / million tokens equals micros / token.
-// Sources and limitations: .local/runtime-console-01/REVIEW.md.
+// Sources and limitations: artifacts/W2/runtime-console-01/REVIEW.md.
 // These are complete model selections, not labels to overlay on another model's prices.
 function chat(adapterId: string, flash: boolean): Selection {
   return { adapterId, provider: 'dashscope', endpoint: chatEndpoint,
@@ -47,6 +47,7 @@ function voices(): NonNullable<Choice['voices']> {
 function baseline(slot: ProviderSlot, model: TrialModel): Selection {
   return { adapterId: identities[slot][0], provider: model.provider, endpoint: model.endpoint, model: model.model,
     inputTokenLimit: model.inputTokenLimit, outputTokenLimit: model.outputTokenLimit,
+    ...(model.contextWindowTokens===undefined?{}:{contextWindowTokens:model.contextWindowTokens}),
     inputMicrosPerToken: model.inputMicrosPerToken, outputMicrosPerToken: model.outputMicrosPerToken,
     reservationMicros: model.reservationMicros,
     ...(model.audioMicrosPerSecond === undefined ? {} : {audioMicrosPerSecond:model.audioMicrosPerSecond}),
@@ -61,7 +62,7 @@ export function managementAdapterCatalog(base: TrialConfiguration, registeredVoi
     const model=base.models[slot]!;
     const deepseek = TEXT_SLOTS.includes(slot as never) && model.provider === 'deepseek';
     const [id, label] = slot === 'perception' && !base.models.asr ? ['qwen-perception', '历史联合感知'] : deepseek ? [`deepseek-${slot}`, `${identities[slot][1]} · DeepSeek 4.1 Flash`] : identities[slot];
-    const original = deepseek ? { ...baseline(slot, deepseekFlashModel(model.credentialFile)), adapterId: id } : { ...baseline(slot, model), adapterId: id };
+    const original = deepseek ? { ...baseline(slot, (slot==='dialogue'?deepseekFlashDialogueModel:deepseekFlashModel)(model.credentialFile)), adapterId: id } : { ...baseline(slot, model), adapterId: id };
     const choices: Choice[] = [{ label: `${original.model}（已登记基线）`, configuration: original,
       ...(slot === 'tts' ? { voices: voices() } : {}) }];
     const reviewed = deepseek ? [] : slot === 'tts'
@@ -74,7 +75,7 @@ export function managementAdapterCatalog(base: TrialConfiguration, registeredVoi
         ? `${configuration.model}（同系列滚动别名）` : configuration.model, configuration,
       ...(slot === 'tts' ? { voices: voices() } : {}) });
     }
-    const specific = deepseek ? `DeepSeek 4.1 Flash，官网当前调用ID deepseek-flash；${slot === 'dialogue' ? '对话由本地规则按问题选择思考或非思考，保持JSON协议' : '非思考JSON协议'}。峰值未命中输入2元/百万、输出8元/百万保守估算，缓存与闲时折扣可能降低实际账单。输入登记32768、输出393216，单次预留3.211264元；沿原累计账，不自动回退千问文本。官方：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/` : slot === 'perception'
+    const specific = deepseek ? `DeepSeek 4.1 Flash，官网当前调用ID deepseek-flash；${slot === 'dialogue' ? '对话由本地规则按问题选择思考或非思考，保持JSON协议' : '非思考JSON协议'}。峰值未命中输入2元/百万、输出8元/百万保守估算，缓存与闲时折扣可能降低实际账单。${slot==='dialogue'?'前台默认输入目标200K，API输入容量1048576，总窗口1048576，输出预留393216，默认预留3.545728元':'后台独立输入32768、输出393216，单次预留3.211264元'}；沿原累计账，不自动回退千问文本。官方：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/` : slot === 'perception'
       ? '仅使用本轮摄像头画面判断情绪；语音由独立转写服务处理。沿用原累计总账保守预留。'
       : slot === 'tts'
         ? '仅已接入的指令型系列及预置音色；滚动别名当前对应 2026-01-26，同系列不代表跨系列切换。不支持声音复刻。按实际提交字符预留费用，计入原累计总账。'

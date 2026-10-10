@@ -23,9 +23,13 @@ import { memoryDynamicsRoute } from './memory-dynamics-routes.js';
 import type {PendingMemoryManagement} from './pending-memory.js';
 import type { ProjectIndexPort } from '../contracts/projects.js';
 import { projectRoute } from './project-routes.js';
+import { projectMemoryRoute } from './project-memory-routes.js';
+import type { ProjectMemoryPort } from '../contracts/project-memory.js';
 import { taskRoute, type TaskManagement } from './task-routes.js';
+import { workbenchRoute } from '../app/workbench-routes.js';
+import type { WorkbenchService } from '../app/workbench-service.js';
 
-interface RuntimeServerOptions { emotion?: EmotionManagement; mode?: 'runtime'; selfSetup?:SelfSetupManagement; memoryImport?: MemoryImportManagement; balances?: BalanceManagement; wake?: WakeManagement; wechat?: WeChatManagement; uiRoot: string; memory: ManagementMemoryPort; settings: ManagementSettingsStore; snapshot(): ManagementSnapshot | Promise<ManagementSnapshot>; token?: string; presentation?: PresentationControls; presentationAssets?: ReadonlyMap<string, string>; pendingMemory?:PendingMemoryManagement; projects?: ProjectIndexPort; tasks?: TaskManagement }
+interface RuntimeServerOptions { emotion?: EmotionManagement; mode?: 'runtime'; selfSetup?:SelfSetupManagement; memoryImport?: MemoryImportManagement; balances?: BalanceManagement; wake?: WakeManagement; wechat?: WeChatManagement; uiRoot: string; memory: ManagementMemoryPort; settings: ManagementSettingsStore; snapshot(): ManagementSnapshot | Promise<ManagementSnapshot>; token?: string; presentation?: PresentationControls; presentationAssets?: ReadonlyMap<string, string>; pendingMemory?:PendingMemoryManagement; projects?: ProjectIndexPort; projectMemory?: ProjectMemoryPort; projectMemoryProcessingAvailable?: boolean; tasks?: TaskManagement; workbench?: WorkbenchService; nativeFrameOrigin?: () => string | undefined }
 type ServerOptions = RuntimeServerOptions | { mode:'setup'; selfSetup:SelfSetupManagement; uiRoot:string; token?:string; presentationAssets?:undefined };
 const character = (value: unknown): CharacterId => { if (!isProductCharacter(value)) throw new ManagementError('invalid_request', '仅可访问当前陪伴角色。'); return value; };
 const integer = (value: unknown, fallback: number, min: number, max: number) => { const n = value === null || value === undefined ? fallback : Number(value); if (!Number.isSafeInteger(n) || n < min || n > max) throw new ManagementError('invalid_request', '数值范围无效。'); return n; };
@@ -54,12 +58,29 @@ export async function startManagementServer(options: ServerOptions) {
         const asset = options.presentationAssets?.get(decodeURIComponent(url.pathname));
         if (asset) {
           const data = await readFile(asset);
-          const type = asset.endsWith('.png') ? 'image/png' : asset.endsWith('.json') ? 'application/json' : asset.endsWith('.js') ? 'text/javascript' : 'application/octet-stream';
+          const type = asset.endsWith('.webm') ? 'video/webm' : asset.endsWith('.png') ? 'image/png' : asset.endsWith('.json') ? 'application/json' : asset.endsWith('.js') ? 'text/javascript' : 'application/octet-stream';
           res.setHeader('Content-Type', type); res.end(req.method === 'HEAD' ? undefined : data); return;
         }
-        const names = new Map([['/emotion-view.mjs','emotion-view.mjs'],['/self-setup-view.mjs','self-setup-view.mjs'],['/memory-import-view.mjs','memory-import-view.mjs'],['/balances-view.mjs','balances-view.mjs'],['/wake-view.mjs','wake-view.mjs'],['/wechat-view.mjs','wechat-view.mjs'],['/', 'index.html'], ['/index.html', 'index.html'], ['/app.mjs', 'app.mjs'], ['/pending-memory-view.mjs','pending-memory-view.mjs'], ['/api.mjs', 'api.mjs'], ['/projects-view.mjs', 'projects-view.mjs'], ['/tasks-view.mjs', 'tasks-view.mjs'], ['/dom.mjs', 'dom.mjs'], ['/views.mjs', 'views.mjs'], ['/style.css', 'style.css'], ['/presentation-view.mjs', 'presentation-view.mjs'], ['/memory-dynamics-view.mjs','memory-dynamics-view.mjs'], ['/presentation-preview.js', 'presentation-preview.js']]);
+        const names = new Map([['/emotion-view.mjs','emotion-view.mjs'],['/self-setup-view.mjs','self-setup-view.mjs'],['/memory-import-view.mjs','memory-import-view.mjs'],['/balances-view.mjs','balances-view.mjs'],['/wake-view.mjs','wake-view.mjs'],['/wechat-view.mjs','wechat-view.mjs'],['/', 'index.html'], ['/index.html', 'index.html'], ['/app.mjs', 'app.mjs'], ['/pending-memory-view.mjs','pending-memory-view.mjs'], ['/api.mjs', 'api.mjs'], ['/projects-view.mjs', 'projects-view.mjs'], ['/workbench-view.mjs', 'workbench-view.mjs'], ['/project-memory-view.mjs', 'project-memory-view.mjs'], ['/tasks-view.mjs', 'tasks-view.mjs'], ['/dom.mjs', 'dom.mjs'], ['/views.mjs', 'views.mjs'], ['/style.css', 'style.css'], ['/presentation-view.mjs', 'presentation-view.mjs'], ['/memory-dynamics-view.mjs','memory-dynamics-view.mjs'], ['/presentation-preview.js', 'presentation-preview.js']]);
+        names.set('/appearance.mjs', 'appearance.mjs');
+        names.set('/native-workbench-view.mjs', 'native-workbench-view.mjs');
+        names.set('/context-budget-view.mjs', 'context-budget-view.mjs');
         const name = names.get(url.pathname); if (!name) throw new ManagementError('not_found', '没有这个页面。');
         let data: Buffer; try { data = await readFile(resolve(options.uiRoot, name)); } catch { throw new ManagementError('unavailable', '管理页面文件尚未就绪。'); }
+        if (name === 'index.html') {
+          let frameOrigin: string | undefined;
+          if (options.mode !== 'setup') try {
+            const value = options.nativeFrameOrigin?.();
+            if (typeof value === 'string' && /^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value) &&
+                new URL(value).origin === value && value !== origin) frameOrigin = value;
+          } catch { /* An unavailable private descriptor grants no frame origin. */ }
+          const marker = '<meta name="aaa-management-entry" content="original-management" data-version="0.1.0">' +
+            (frameOrigin ? '<meta name="aaa-management-frame-origin" content="' + frameOrigin + '" data-version="0.1.0">' : '');
+          if (frameOrigin) res.setHeader('Content-Security-Policy',
+            String(res.getHeader('Content-Security-Policy')) + "; frame-src 'self' " + frameOrigin);
+          const html = data.toString('utf8');
+          data = Buffer.from(/<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, marker + '</head>') : marker + html);
+        }
         res.setHeader('Content-Type', name.endsWith('.html') ? 'text/html; charset=utf-8' : name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'); res.end(req.method === 'HEAD' ? undefined : data); return;
       }
       const expected = Buffer.from('Bearer ' + token), provided = Buffer.from(req.headers.authorization ?? '');
@@ -72,7 +93,12 @@ export async function startManagementServer(options: ServerOptions) {
       if (await memoryImportRoute(req,url,options.memoryImport,()=>body(req),value=>json(res,200,value))) return;
       if(await balanceRoute(req,url,options.balances,()=>body(req),value=>json(res,200,value)))return;
       if (await taskRoute(req, url, options.tasks, () => body(req), value => json(res, 200, value))) return;
+      if (await workbenchRoute(req, url, options.workbench, () => body(req), (value, cookie) => {
+        if (cookie) res.setHeader('Set-Cookie', cookie);
+        json(res, 200, value);
+      })) return;
       if (await projectRoute(req, url, options.projects, () => body(req), value => json(res, 200, value))) return;
+      if (await projectMemoryRoute(req, url, options.projects, options.projectMemory, options.projectMemoryProcessingAvailable ?? false, () => body(req), value => json(res, 200, value))) return;
       if(url.pathname==='/api/memory-pending'&&req.method==='GET'){json(res,200,options.pendingMemory?.list()??{instanceId:(await options.snapshot()).runtime.instanceId,requests:[],busy:false});return;}
       if(['/api/memory-pending/retry','/api/memory-pending/cancel'].includes(url.pathname)&&req.method==='POST'){
         if(!options.pendingMemory)throw new ManagementError('unavailable','当前版本尚未接入未完成请求管理。');

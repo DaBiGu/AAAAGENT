@@ -8,12 +8,12 @@ import { EvaluationBudget, type BudgetState } from '../core/evaluation-budget.js
 import type { CallOutcome, EndpointConfig } from '../providers/transport.js';
 
 export const SEMANTIC_PHASE = 'memory-semantic-validation-v1';
-export const SEMANTIC_DIRECTORY = '.local/memory-semantic-offline-v1/phase';
+export const SEMANTIC_DIRECTORY = 'artifacts/W0-I/memory-semantic-offline-v1/phase';
 export const SEMANTIC_RECHECK_PHASE = 'memory-semantic-raw-recheck-v1';
 export type SemanticBatchId = `memory-semantic-batch-${string}`;
 export type SemanticPhaseId = typeof SEMANTIC_PHASE | typeof SEMANTIC_RECHECK_PHASE | SemanticBatchId;
-export const SEMANTIC_BATCH_ROOT = '.local/semantic-batches';
-export const SEMANTIC_POLICY = '.local/model-evaluation/authorization-20-v1.json';
+export const SEMANTIC_BATCH_ROOT = 'artifacts/W0-I/semantic-batches';
+export const SEMANTIC_POLICY = 'artifacts/W0-I/model-evaluation/authorization-20-v1.json';
 export const SEMANTIC_SHARED_LIMIT = 20_000_000;
 export const isSemanticBatch = (id: string): id is SemanticBatchId => /^memory-semantic-batch-[0-9]{8}-[0-9]{2,4}$/.test(id);
 export const SEMANTIC_MODEL = 'deepseek-v4-flash';
@@ -34,17 +34,17 @@ export const SEMANTIC_PARAMETERS = { stream: false, thinking: { type: 'disabled'
 export const SEMANTIC_THINKING_PARAMETERS = { ...SEMANTIC_PARAMETERS, thinking: { type: 'enabled' }, reasoning_effort: 'high' } as const;
 export const semanticOrder = ['raw-only', 'closure', 'merge', 'retire', 'natural-update'] as const;
 export type SemanticCaseId = typeof semanticOrder[number];
-const ledgerPath = '.local/model-evaluation/budget.json';
-const oldProtected = ['.local/prompt-trial-inputs/STOPPED.json', '.local/deepseek-comparison/STOPPED.json', '.local/deepseek-comparison/config.json'];
+const ledgerPath = 'artifacts/W0-I/model-evaluation/budget.json';
+const oldProtected = ['artifacts/W0-I/prompt-trial-inputs/STOPPED.json', 'artifacts/W0-I/deepseek-comparison/STOPPED.json', 'artifacts/W0-I/deepseek-comparison/config.json'];
 /** Historical defaults stay fixed. Registered batch limits come only from validated frozen configuration. */
 export function semanticPhaseProfile(phaseId: SemanticPhaseId = SEMANTIC_PHASE) {
   assert.ok(phaseId === SEMANTIC_PHASE || phaseId === SEMANTIC_RECHECK_PHASE || isSemanticBatch(phaseId), 'Unknown semantic phase');
   const recheck = phaseId === SEMANTIC_RECHECK_PHASE;
-  return Object.freeze({ phaseId, directory: isSemanticBatch(phaseId) ? `${SEMANTIC_BATCH_ROOT}/${phaseId}` : recheck ? '.local/semantic-raw-recheck-v1' : SEMANTIC_DIRECTORY,
+  return Object.freeze({ phaseId, directory: isSemanticBatch(phaseId) ? `${SEMANTIC_BATCH_ROOT}/${phaseId}` : recheck ? 'artifacts/W0-I/semantic-raw-recheck-v1' : SEMANTIC_DIRECTORY,
     maxAttempts: recheck ? 1 as const : 6 as const, phaseLimitMicros: recheck ? 4_000_000 as const : 5_000_000 as const,
     order: Object.freeze(recheck ? ['raw-only'] as const : [...semanticOrder]),
     protectedPaths: Object.freeze(recheck || isSemanticBatch(phaseId) ? [...oldProtected, ...['STOPPED.json', 'config.json', 'system.txt', 'requests.json', 'review.json', 'manifest-all.json'].map(name => `${SEMANTIC_DIRECTORY}/${name}`),
-      ...(isSemanticBatch(phaseId) ? ['STOPPED.json', 'config.json', 'system.txt', 'requests.json', 'review.json', 'manifest-all.json'].map(name => `.local/semantic-raw-recheck-v1/${name}`) : [])] : [...oldProtected]),
+      ...(isSemanticBatch(phaseId) ? ['STOPPED.json', 'config.json', 'system.txt', 'requests.json', 'review.json', 'manifest-all.json'].map(name => `artifacts/W0-I/semantic-raw-recheck-v1/${name}`) : [])] : [...oldProtected]),
   });
 }
 export const semanticHash = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -152,11 +152,11 @@ export async function readSemanticPolicy(root: string, expectedSha256: string): 
 
 /** Explicit one-time metadata migration under both existing locks. Historical entries are not rewritten. */
 export async function migrateSemanticBudget20(root: string): Promise<object> {
-  const directory = '.local/model-evaluation/limit-20-v1';
+  const directory = 'artifacts/W0-I/model-evaluation/limit-20-v1';
   const board = JSON.parse((await pinnedRead(root, 'docs/agent/blackboard/CURRENT.json')).toString());
   await readSemanticPolicy(root, board.model_budget_policy?.sha256);
   assert.ok(['stopped_after_declaration_compile_failure', 'stopped_after_first_semantic_failure', 'completed_reviewed'].includes(board.semantic_model_evaluation?.status), 'An active or unreviewed batch prevents migration');
-  const backendPath = `${root}/.local/model-evaluation/backend.lock`, budgetLockPath = `${root}/${ledgerPath}.lock`;
+  const backendPath = `${root}/artifacts/W0-I/model-evaluation/backend.lock`, budgetLockPath = `${root}/${ledgerPath}.lock`;
   const backend = await open(backendPath, 'wx');
   try {
     const lock = await open(budgetLockPath, 'wx');
@@ -204,7 +204,7 @@ function checkConfig(config: SemanticPhaseConfig, phaseId: SemanticPhaseId): voi
       assert.deepEqual(config.cases, [{ id: 'raw-only', maxAttempts: 1 }]);
       assert.ok(config.comparison && config.comparison.phaseId !== phaseId);
       assert.deepEqual(keys(config.pricingEvidence!), ['path', 'sha256']);
-      assert.ok(config.pricingEvidence!.path.startsWith('.local/'));
+      assert.ok(config.pricingEvidence!.path.startsWith('artifacts/W0-I/'));
       assert.match(config.pricingEvidence!.sha256, hashPattern);
       assert.equal(config.artifactPins[config.pricingEvidence!.path], config.pricingEvidence!.sha256);
     }
@@ -223,7 +223,7 @@ function checkConfig(config: SemanticPhaseConfig, phaseId: SemanticPhaseId): voi
   for (const path of profile.protectedPaths) assert.match(config.artifactPins[path]!, hashPattern, 'Old stopped records must be pinned');
   assert.ok(Object.keys(config.sourcePins).length > 0, 'Source pins required');
   for (const [path, sha] of Object.entries(config.sourcePins)) { assert.ok(path.startsWith('code/desktop-pet/')); assert.match(sha, hashPattern); }
-  for (const [path, sha] of Object.entries(config.artifactPins)) { assert.ok(path.startsWith('.local/') && path !== ledgerPath); assert.match(sha, hashPattern); }
+  for (const [path, sha] of Object.entries(config.artifactPins)) { assert.ok(path.startsWith('artifacts/W0-I/') && path !== ledgerPath); assert.match(sha, hashPattern); }
   assert.ok(SEMANTIC_INPUT_LIMIT * model.inputRate + model.maximumOutputTokens * model.outputRate <= config.reservationMicros);
 }
 export async function loadSemanticPhase(root: string, requirePaidApproval = true, phaseId: SemanticPhaseId = SEMANTIC_PHASE): Promise<{ config: SemanticPhaseConfig; configSha256: string }> {
@@ -361,7 +361,7 @@ export async function beginSemanticCase(root: string, runId: string, signal: Abo
     assert.ok(entries.filter(e => e.operationId.startsWith(`${prefix}${caseId}:`)).length < selected!.maxAttempts, 'Case attempt limit reached');
   };
   checkFunds(await budgetState());
-  const lockPath = `${root}/.local/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx');
+  const lockPath = `${root}/artifacts/W0-I/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx');
   let released = false, claimed = false, attempts = 0, settled = 0;
   const release = async () => { if (!released) { released = true; await lock.close(); await unlink(lockPath); } };
   try {

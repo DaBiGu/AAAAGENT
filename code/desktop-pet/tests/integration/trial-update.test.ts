@@ -14,14 +14,14 @@ const { prepareTrialUpdate }=await import(pathToFileURL(join(project,'tools/prep
 const quiet=async()=>{};
 const {prepareTrialLaunch}=await import('../../app/trial-launcher.js');
 async function fixture(t:{after(fn:()=>Promise<void>):void}) {
-  const parent=resolve(project,'../../.local/panel-stability-01/tmp');await mkdir(parent,{recursive:true});
+  const parent=resolve(project,'../../artifacts/W0-I/companion-step1-01/tmp');await mkdir(parent,{recursive:true});
   const temp=await mkdtemp(join(parent,'update-'));t.after(()=>rm(temp,{recursive:true,force:true}));
   const root=join(temp,'root'),candidate=join(temp,'candidate');await mkdir(root);await mkdir(candidate);
   const chat={provider:'dashscope',model:'controlled',endpoint:'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',credentialFile:'/nonexistent-external-key',reservationMicros:100000,inputTokenLimit:100,outputTokenLimit:100,inputMicrosPerToken:1,outputMicrosPerToken:1};
   const paths=['dist/app/trial-backend.js','dist/app/trial-launcher.js','desktop/build/renderer.js','desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'].map(p=>'code/desktop-pet/'+p);
   for(const where of [root,candidate])for(const name of paths){const path=join(where,name);await mkdir(dirname(path),{recursive:true});await writeFile(path,where===root?'old':'new');}
-  const directory=join(root,'.local/model-evaluation/trial/user-trial');await mkdir(directory,{recursive:true});
-  const c={version:1,projectRoot:root,phaseId:'local-trial-update-fixture',purpose:'user-trial',sourceRevision:'a'.repeat(40),runtimeFiles:Object.fromEntries(paths.map(p=>[p,hash('old')])),database:join(directory,'state.sqlite'),budgetFile:join(root,'.local/model-evaluation/budget.json'),budgetBatchId:'shared-original',limitMicros:20000000,phaseLimitMicros:20000000,maxCalls:6,operationLimits:{dialogue:1,admission:1,memory_turn:1,summary:1,perception:1,tts:1},memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000},models:{dialogue:chat,admission:chat,summary:chat,perception:chat,memory_turn:{...chat,provider:'deepseek',endpoint:'https://api.deepseek.com/chat/completions'},tts:{...chat,endpoint:'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',characterMicros:80}}};
+  const directory=join(root,'artifacts/W0-I/model-evaluation/trial/user-trial');await mkdir(directory,{recursive:true});
+  const c={version:1,projectRoot:root,phaseId:'local-trial-update-fixture',purpose:'user-trial',sourceRevision:'a'.repeat(40),runtimeFiles:Object.fromEntries(paths.map(p=>[p,hash('old')])),database:join(directory,'state.sqlite'),budgetFile:join(root,'artifacts/W0-I/model-evaluation/budget.json'),budgetBatchId:'shared-original',limitMicros:20000000,phaseLimitMicros:20000000,maxCalls:6,operationLimits:{dialogue:1,admission:1,memory_turn:1,summary:1,perception:1,tts:1},memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000},models:{dialogue:chat,admission:chat,summary:chat,perception:chat,memory_turn:{...chat,provider:'deepseek',endpoint:'https://api.deepseek.com/chat/completions'},tts:{...chat,endpoint:'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',characterMicros:80}}};
   const next={...c,sourceRevision:'b'.repeat(40),runtimeFiles:Object.fromEntries(paths.map(p=>[p,hash('new')]))};
   const configFile=join(directory,'config.json'),activationFile=join(directory,'activation.json'),nextFile=join(candidate,'next.json');
   const currentRaw=JSON.stringify(c),activationRaw=JSON.stringify({version:1,phaseId:c.phaseId,status:'active',configSha256:hash(currentRaw)}),nextRaw=JSON.stringify(next);
@@ -32,8 +32,49 @@ async function fixture(t:{after(fn:()=>Promise<void>):void}) {
   return {root,candidate,c,next,plan,paths,configFile,activationFile,nextFile,currentRaw,activationRaw,budgetRaw};
 }
 
+async function rendererRetirementFixture(t:{after(fn:()=>Promise<void>):void}) {
+ const f=await fixture(t),prefix='code/desktop-pet/t3-native/apps/web/dist/';
+ const old=[prefix+'assets/old.js',prefix+'assets/old.css'],index=prefix+'index.html';
+ const additions=[prefix+'aaa-native-read-build.json',prefix+'assets/new.js'];
+ for(const path of [...old,index]){await mkdir(dirname(join(f.root,path)),{recursive:true});await writeFile(join(f.root,path),'old '+path);}
+ for(const path of [index,...additions]){await mkdir(dirname(join(f.candidate,path)),{recursive:true});await writeFile(join(f.candidate,path),path===index?'old '+path:'new '+path);}
+ const c={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite'),
+  runtimeFiles:{...f.c.runtimeFiles,...Object.fromEntries([...old,index].map(path=>[path,hash('old '+path)]))}};
+ const raw=JSON.stringify(c);await mkdir(dirname(c.database),{recursive:true});await writeFile(c.database,'personal data');
+ await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:c.phaseId,status:'active',configSha256:hash(raw)}));
+ const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),retiredRuntimePaths:old,newRuntimePaths:additions});
+ return {...f,c,raw,old,additions,plan:review.plan};
+}
+
+test('normal update physically retires only reviewed renderer assets and keeps their recoverable old bytes',async t=>{
+ const f=await rendererRetirementFixture(t);const result=await installTrialUpdate(f.plan,{quiescent:quiet});
+ assert.equal(result.status,'installed_active');assert.equal(result.retiredRendererFiles,2);
+ for(const path of f.old){await assert.rejects(readFile(join(f.root,path)),{code:'ENOENT'});assert.equal(await readFile(join(result.backup,path),'utf8'),'old '+path);}
+ for(const path of f.additions)assert.equal(await readFile(join(f.root,path),'utf8'),'new '+path);
+ assert.equal(await readFile(f.c.database,'utf8'),'personal data');assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
+ assert.equal((await installTrialUpdate(f.plan,{quiescent:quiet,afterWrite:async()=>{throw Error('no replay');}})).status,'already_active');
+});
+
+test('failure after renderer retirement restores old assets and runtime without changing personal data or ledger',async t=>{
+ const f=await rendererRetirementFixture(t);await assert.rejects(installTrialUpdate(f.plan,{quiescent:quiet,afterWrite:async (path:string)=>{if(path===f.old[1])throw Error('controlled retirement failure');}}),/controlled retirement/);
+ for(const path of f.old)assert.equal(await readFile(join(f.root,path),'utf8'),'old '+path);
+ for(const path of f.additions)await assert.rejects(readFile(join(f.root,path)),{code:'ENOENT'});
+ for(const path of f.paths)assert.equal(await readFile(join(f.root,path),'utf8'),'old');
+ assert.equal(await readFile(f.configFile,'utf8'),f.raw);assert.equal(JSON.parse(await readFile(f.activationFile,'utf8')).status,'prepared');
+ assert.equal(await readFile(f.c.database,'utf8'),'personal data');assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
+});
+
+for(const mode of ['changed','symlink'] as const)test(`retired renderer ${mode} is rejected before activation or writes`,async t=>{
+ const f=await rendererRetirementFixture(t),path=join(f.root,f.old[0]!),activation=await readFile(f.activationFile);
+ if(mode==='changed')await writeFile(path,'unreviewed');
+ else{await rm(path);await symlink(f.c.database,path);}
+ await assert.rejects(installTrialUpdate(f.plan,{quiescent:quiet}),/Current runtime changed|symbolic links/);
+ assert.ok((await readFile(f.activationFile)).equals(activation));assert.equal(await readFile(f.configFile,'utf8'),f.raw);
+ assert.equal(await readFile(f.c.database,'utf8'),'personal data');assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
+});
+
 for(const mode of ['success','changed-ledger','rollback'] as const)test(`unlimited accounting migration ${mode}: only policy fields may change`,async t=>{
- const f=await fixture(t),current={...f.c,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')},raw=JSON.stringify(current);
+ const f=await fixture(t),current={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')},raw=JSON.stringify(current);
  await mkdir(dirname(current.database),{recursive:true});await writeFile(current.database,'synthetic preserved personal data');await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
  const entries=[{operationId:'old-paid',model:'synthetic',reservedMicros:100,actualMicros:12,status:'settled'},{operationId:'old-unknown',model:'synthetic',reservedMicros:90000000,actualMicros:null,status:'unknown'}],ledger={batchId:current.budgetBatchId,currency:'CNY',limitMicros:20000000,blocked:false,entries},before=JSON.stringify(ledger);await writeFile(current.budgetFile,before);
  const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),unlimitedAccounting:true});
@@ -45,7 +86,7 @@ for(const mode of ['success','changed-ledger','rollback'] as const)test(`unlimit
 });
 
 test('ordinary companion update preparation and installation retain the exact existing new database and sidecars',async t=>{
-  const f=await fixture(t),database=join(f.root,'.local/data/companion.sqlite');
+  const f=await fixture(t),database=join(f.root,'data/desktop-pet/companion.sqlite');
   const current={...f.c,product:'companion-v1',database};
   const raw=JSON.stringify(current);await writeFile(f.configFile,raw);
   await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
@@ -60,13 +101,13 @@ test('ordinary companion update preparation and installation retain the exact ex
   assert.deepEqual(await Promise.all(['','-wal','-shm'].map(s=>readFile(database+s))),before);
   assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
   assert.equal(await readFile(f.c.database,'utf8'),'synthetic opaque user state','unrelated old-path fixture is untouched too');
-  await assert.rejects(stat(join(f.root,'.local/companion-step1-01/update')),{code:'ENOENT'});
+  await assert.rejects(stat(join(f.root,'artifacts/W0-I/companion-step1-01/update')),{code:'ENOENT'});
 });
 
 test('ordinary preparation needs neither business data nor ledger; a legacy transition cannot enter this path',async t=>{
   const f=await fixture(t);
   await assert.rejects(prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40)}),/existing companion/);
-  const current={...f.c,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')},raw=JSON.stringify(current);
+  const current={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')},raw=JSON.stringify(current);
   await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
   await rm(f.c.budgetFile);await rm(f.c.database);
   const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40)});
@@ -75,11 +116,11 @@ test('ordinary preparation needs neither business data nor ledger; a legacy tran
 });
 
 test('daily install preserves unknown reservations without requiring per-call audit',async t=>{
-  const f=await fixture(t), current={...f.c,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')};
+  const f=await fixture(t), current={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')};
   const raw=JSON.stringify(current); await writeFile(f.configFile,raw);
   await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
   const entry={operationId:'W0-I:B-DANIA-MINIMAX-AUDITION-01:clone-demo',model:'MiniMax/speech-2.8-hd',reservedMicros:19600,actualMicros:null,status:'unknown'};
-  const auditFile=join(f.root,'.local/minimax-default-01/budget-bound/audit.json');
+  const auditFile=join(f.root,'artifacts/W0-I/minimax-default-01/budget-bound/audit.json');
   const audit=JSON.stringify({kind:'unknown_reservation_upper_bound_correction',status:'applied',actualChargeStillUnknown:true,correctedEntry:entry});
   await mkdir(dirname(auditFile),{recursive:true});await writeFile(auditFile,audit);
   const budget=JSON.parse(f.budgetRaw);budget.entries.push(entry);const budgetRaw=JSON.stringify(budget);await writeFile(f.c.budgetFile,budgetRaw);
@@ -94,19 +135,19 @@ test('daily install preserves unknown reservations without requiring per-call au
 });
 
 test('ordinary update evidence stays in its current package and rejects outside or symlink output',async t=>{
-  const f=await fixture(t), current={...f.c,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')},raw=JSON.stringify(current);
+  const f=await fixture(t), current={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')},raw=JSON.stringify(current);
   await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
   const args={projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40)};
-  for(const outputDirectory of ['/tmp/elsewhere','.local/update','.local/../../elsewhere'])
+  for(const outputDirectory of ['/tmp/elsewhere','artifacts/W1/update','artifacts/W0-I/../../elsewhere'])
     await assert.rejects(prepareTrialUpdate({...args,outputDirectory}),/integration artifact/);
-  await mkdir(join(f.candidate,'.local'),{recursive:true});
-  await symlink(f.root,join(f.candidate,'.local/link'));
-  await assert.rejects(prepareTrialUpdate({...args,outputDirectory:'.local/link/update'}),/Symlink/);
-  const outputDirectory='.local/panel-stability-01/update';
+  await mkdir(join(f.candidate,'artifacts/W0-I'),{recursive:true});
+  await symlink(f.root,join(f.candidate,'artifacts/W0-I/link'));
+  await assert.rejects(prepareTrialUpdate({...args,outputDirectory:'artifacts/W0-I/link/update'}),/Symlink/);
+  const outputDirectory='artifacts/W0-I/panel-stability-01/update';
   const review=await prepareTrialUpdate({...args,outputDirectory});
   assert.equal(review.plan.nextConfigFile,join(f.candidate,outputDirectory,'next-config.json'));
   assert.equal(JSON.parse(await readFile(join(f.candidate,outputDirectory,'plan.json'),'utf8')).nextConfigSha256,review.plan.nextConfigSha256);
-  await assert.rejects(stat(join(f.candidate,'.local/companion-feedback-01')),{code:'ENOENT'});
+  await assert.rejects(stat(join(f.candidate,'artifacts/W0-I/companion-feedback-01')),{code:'ENOENT'});
   assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
 });
 
@@ -122,10 +163,10 @@ test('review preparation reads neither old data nor ledger; final freeze require
   const prepared=await prepareCompanionUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40)});
   const review=JSON.parse(await readFile(prepared.reviewFile,'utf8')),next=JSON.parse(await readFile(review.nextConfigFile,'utf8'));
   assert.equal(prepared.status,'candidate_prepared_requires_quiescent_freeze');
-  assert.equal(next.product,'companion-v1');assert.equal(next.database,join(f.root,'.local/data/companion.sqlite'));
+  assert.equal(next.product,'companion-v1');assert.equal(next.database,join(f.root,'data/desktop-pet/companion.sqlite'));
   const policy=(value:any)=>{const {product,database,runtimeFiles,sourceRevision,...rest}=value;return rest;};assert.deepEqual(policy(next),policy(f.c));
   assert.ok((await readFile(f.configFile)).equals(before));assert.ok((await readFile(f.activationFile)).equals(activationBefore));
-  const missingOldData=join(f.root,'.local/model-evaluation/trial/user-trial/state.sqlite');
+  const missingOldData=join(f.root,'artifacts/W0-I/model-evaluation/trial/user-trial/state.sqlite');
   await assert.rejects(readFile(missingOldData),{code:'ENOENT'});
   await assert.rejects(freezeCompanionUpdate(prepared.reviewFile,{quiescent:async()=>{throw Error('still running');}}),/still running/);
   await writeFile(missingOldData,'only synthetic legacy data');await writeFile(f.c.budgetFile,f.budgetRaw);
@@ -143,7 +184,7 @@ test('review preparation reads neither old data nor ledger; final freeze require
 test('running-process refusal happens before activation, config, runtime or update-artifact writes',async t=>{
   const f=await fixture(t);await assert.rejects(installTrialUpdate(f.plan,{quiescent:async()=>{throw new Error('still running');}}),/still running/);
   assert.equal(await readFile(f.activationFile,'utf8'),f.activationRaw);assert.equal(await readFile(f.configFile,'utf8'),f.currentRaw);
-  assert.equal(await readFile(join(f.root,f.paths[0]!),'utf8'),'old');await assert.rejects(stat(join(f.root,'.local/trial-feedback-01/update')),/ENOENT/);
+  assert.equal(await readFile(join(f.root,f.paths[0]!),'utf8'),'old');await assert.rejects(stat(join(f.root,'artifacts/W0-I/trial-feedback-01/update')),/ENOENT/);
 });
 
 test('phase, data, model and budget policy changes cannot reset existing trial authorization',async t=>{
@@ -240,7 +281,7 @@ test('the actual update-and-launch command installs once and reuses the same ent
 });
 
 async function companionFixture(t:{after(fn:()=>Promise<void>):void},sidecars=false) {
-  const f=await fixture(t),next={...f.next,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')};
+  const f=await fixture(t),next={...f.next,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')};
   const raw=JSON.stringify(next);await writeFile(f.nextFile,raw);
   if(sidecars){await writeFile(f.c.database+'-wal','synthetic wal');await writeFile(f.c.database+'-shm','synthetic shm');}
   const legacyData={kind:'retire_legacy_trial_data',id:'companion-step1-fixture',files:{database:hash(await readFile(f.c.database)),wal:sidecars?hash('synthetic wal'):null,shm:sidecars?hash('synthetic shm'):null}};
@@ -252,7 +293,7 @@ test('reviewed companion update retires exact legacy data, preserves ledger and 
   const result=await installTrialUpdate(f.plan,{quiescent:quiet});assert.equal(result.status,'installed_active');
   await assert.rejects(stat(f.c.database),/ENOENT/);assert.deepEqual(await readFile(f.c.budgetFile),before);
   assert.equal(JSON.parse(await readFile(f.configFile,'utf8')).database,f.next.database);
-  const receipt=JSON.parse(await readFile(join(f.root,'.local/companion-step1-01/update/companion-step1-fixture.json'),'utf8'));assert.equal(receipt.state,'complete');
+  const receipt=JSON.parse(await readFile(join(f.root,'artifacts/W0-I/companion-step1-01/update/companion-step1-fixture.json'),'utf8'));assert.equal(receipt.state,'complete');
   await mkdir(dirname(f.next.database),{recursive:true});await writeFile(f.next.database,'new companion conversations');
   assert.equal((await installTrialUpdate(f.plan,{quiescent:quiet})).status,'already_active');
   assert.equal(await readFile(f.next.database,'utf8'),'new companion conversations');assert.deepEqual(await readFile(f.c.budgetFile),before);
@@ -304,7 +345,7 @@ test('authorized cumulative60 transition preserves all entries/data, updates con
 
 
 test('a new runtime pin is included in the transaction even when its file already matches the candidate',async t=>{
- const f=await fixture(t),current={...f.c,product:'companion-v1',database:join(f.root,'.local/data/companion.sqlite')},raw=JSON.stringify(current);
+ const f=await fixture(t),current={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite')},raw=JSON.stringify(current);
  await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
  const added='code/desktop-pet/dist/app/new-module.js';for(const root of [f.root,f.candidate])await writeFile(join(root,added),'same unregistered bytes');
  const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),newRuntimePaths:[added]});
@@ -313,4 +354,93 @@ test('a new runtime pin is included in the transaction even when its file alread
  assert.equal((await installTrialUpdate(review.plan,{quiescent:quiet})).status,'installed_active');
  assert.equal(JSON.parse(await readFile(f.configFile,'utf8')).runtimeFiles[added],hash('same unregistered bytes'));
  assert.equal(await readFile(f.c.budgetFile,'utf8'),f.budgetRaw);
+});
+
+test('workbench source, prepared marker and Node pins install atomically while personal data stays intact',async t=>{
+ const f=await fixture(t),database=join(f.root,'data/desktop-pet/companion.sqlite');
+ const current={...f.c,product:'companion-v1',database},raw=JSON.stringify(current);
+ await mkdir(dirname(database),{recursive:true});await writeFile(database,'existing personal data');
+ await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
+ const additions=['code/workbench/integration/t3-local-service.mjs','code/workbench/integration/t3-http-client.mjs',
+  'code/workbench/integration/t3-source.json','artifacts/runtime/t3-c13f7d93-9103a9894829/.aaaagent-prepared.json',
+  'artifacts/runtime/toolchain/node-v24.13.1-darwin-arm64/bin/node'];
+ for(const path of additions){const file=join(f.candidate,path);await mkdir(dirname(file),{recursive:true});await writeFile(file,'controlled '+path);}
+ const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),newRuntimePaths:additions});
+ assert.equal((await inspectTrialUpdate(review.plan,quiet)).changes.size,f.paths.length+additions.length);
+ assert.equal((await installTrialUpdate(review.plan,{quiescent:quiet})).status,'installed_active');
+ for(const path of additions)assert.equal(await readFile(join(f.root,path),'utf8'),'controlled '+path);
+ assert.equal(await readFile(database,'utf8'),'existing personal data');
+ await assert.rejects(prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),
+  newRuntimePaths:['artifacts/runtime/other/private-key.json']}),/Invalid added runtime path/);
+});
+
+test('plan may use exact saved installed bytes without changing a running checkout',async t=>{
+ const f=await fixture(t),database=join(f.root,'data/desktop-pet/companion.sqlite');
+ const current={...f.c,product:'companion-v1',database},raw=JSON.stringify(current);
+ await mkdir(dirname(database),{recursive:true});await writeFile(database,'private state');
+ await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:current.phaseId,status:'active',configSha256:hash(raw)}));
+ const drift=f.paths[0]!,baseline=join(f.root,'artifacts/worktrees/W0-I-saved/artifacts/W0-I/saved/preinstall-runtime');
+ await mkdir(dirname(join(baseline,drift)),{recursive:true});await writeFile(join(baseline,drift),'old');
+ await writeFile(join(f.root,drift),'checkout changed since install');
+ await assert.rejects(prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40)}),/Installed runtime changed/);
+ const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),
+  baselineDirectory:baseline,outputDirectory:'artifacts/W0-I/panel-stability-01/saved-plan'});
+ assert.deepEqual(review.stagedBaselineDriftPaths,[drift]);
+ assert.equal(await readFile(join(f.root,drift),'utf8'),'checkout changed since install');
+ await assert.rejects(inspectTrialUpdate(review.plan,quiet),/Reviewed update bytes changed/);
+ await writeFile(join(f.root,drift),'old');
+ assert.equal((await inspectTrialUpdate(review.plan,quiet)).changes.size,f.paths.length);
+ assert.equal(await readFile(database,'utf8'),'private state');
+});
+
+
+test('only a replaced T3 marker pin may retire; old runtime bytes and data stay on disk',async t=>{
+ const f=await fixture(t),old='artifacts/runtime/t3-c13f7d93-111111111111/.aaaagent-prepared.json',next='artifacts/runtime/t3-c13f7d93-222222222222/.aaaagent-prepared.json';
+ await mkdir(dirname(join(f.root,old)),{recursive:true});await writeFile(join(f.root,old),'old marker');
+ await mkdir(dirname(join(f.candidate,next)),{recursive:true});await writeFile(join(f.candidate,next),'new marker');
+ const c={...f.c,product:'companion-v1',database:join(f.root,'data/desktop-pet/companion.sqlite'),runtimeFiles:{...f.c.runtimeFiles,[old]:hash('old marker')}},raw=JSON.stringify(c);
+ await mkdir(dirname(c.database),{recursive:true});await writeFile(c.database,'personal data');
+ await writeFile(f.configFile,raw);await writeFile(f.activationFile,JSON.stringify({version:1,phaseId:c.phaseId,status:'active',configSha256:hash(raw)}));
+ await assert.rejects(prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),retiredRuntimePaths:[f.paths[0]]}),/exact replaced/);
+ const review=await prepareTrialUpdate({projectRoot:f.root,candidateRoot:f.candidate,sourceRevision:'b'.repeat(40),retiredRuntimePaths:[old],newRuntimePaths:[next]});
+ await inspectTrialUpdate(review.plan,quiet);await installTrialUpdate(review.plan,{quiescent:quiet});
+ assert.equal(await readFile(join(f.root,old),'utf8'),'old marker');assert.equal(await readFile(c.database,'utf8'),'personal data');
+ const installed=JSON.parse(await readFile(f.configFile,'utf8'));assert.equal(installed.runtimeFiles[old],undefined);assert.equal(installed.runtimeFiles[next],hash('new marker'));
+});
+
+
+test('installer refuses a still-owned independent engineering host before touching user data',async t=>{
+ const f=await fixture(t),owner=join(f.root,'data/desktop-pet/t3-home/.aaaagent-t3-host.json');
+ await mkdir(dirname(owner),{recursive:true});await writeFile(owner,'controlled owner descriptor');
+ await assert.rejects(assertTrialQuiescent(f.c),/显式停止工程后台/);
+ await assertTrialQuiescent(f.c,{allowWorkbenchRunning:true});
+ await assert.rejects(assertTrialQuiescent(f.c),/显式停止工程后台/);
+ assert.equal(await readFile(owner,'utf8'),'controlled owner descriptor');
+ assert.equal(await readFile(f.c.database,'utf8'),'synthetic opaque user state');
+});
+
+for (const mode of ['success', 'tampered', 'rollback'] as const) test(`DSH protected location update ${mode} preserves unrelated configuration and budget`, async t => {
+  const f = await fixture(t), current = { ...f.c, product: 'companion-v1', database: join(f.root, 'data/desktop-pet/companion.sqlite') };
+  const raw = JSON.stringify(current); await writeFile(f.configFile, raw);
+  await writeFile(f.activationFile, JSON.stringify({ version: 1, phaseId: current.phaseId, status: 'active', configSha256: hash(raw) }));
+  const additions = ['code/workbench/integration/dsh-controller-source.json', 'code/workbench/integration/dsh-trial.mjs'];
+  for (const path of additions) { await mkdir(dirname(join(f.candidate, path)), { recursive: true }); await writeFile(join(f.candidate, path), 'synthetic support'); }
+  const review = await prepareTrialUpdate({ projectRoot: f.root, candidateRoot: f.candidate, sourceRevision: 'b'.repeat(40),
+    newRuntimePaths: additions, workbenchDshWebLog: '/private/synthetic-host.log' });
+  assert.deepEqual(review.plan.workbenchDshUpdate, { before: null, after: '/private/synthetic-host.log' });
+  if (mode === 'tampered') {
+    await assert.rejects(inspectTrialUpdate({ ...review.plan, workbenchDshUpdate: { before: null, after: '/different.log' } }, quiet), /exact reviewed/);
+    const { workbenchDshUpdate: _removed, ...unreviewed } = review.plan;
+    await assert.rejects(inspectTrialUpdate(unreviewed, quiet), /preserve phase/);
+    assert.equal(await readFile(f.configFile, 'utf8'), raw);
+  } else if (mode === 'rollback') {
+    await assert.rejects(installTrialUpdate(review.plan, { quiescent: quiet, afterWrite: async () => { throw Error('synthetic interrupted write'); } }), /synthetic interrupted/);
+    assert.equal(await readFile(f.configFile, 'utf8'), raw);
+    assert.equal(await readFile(join(f.root, f.paths[0]!), 'utf8'), 'old');
+  } else {
+    assert.equal((await installTrialUpdate(review.plan, { quiescent: quiet })).status, 'installed_active');
+    const next = JSON.parse(await readFile(f.configFile, 'utf8')); assert.equal(next.workbenchDshWebLog, '/private/synthetic-host.log');
+    assert.deepEqual(next.models, current.models); assert.equal(next.database, current.database);
+  }
+  assert.equal(await readFile(f.c.budgetFile, 'utf8'), f.budgetRaw);
 });

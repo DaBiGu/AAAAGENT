@@ -13,7 +13,7 @@ import {MemoryMediaStore} from '../../media/store.js';
 import type {BackendToDesktop} from '../../contracts/desktop-bridge.js';
 import type {DesktopWorkState} from '../../contracts/desktop-work.js';
 async function fixture(t:TestContext){
- const parent=fileURLToPath(new URL('../../../../../.local/work-records-23/tmp/',import.meta.url));await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'record-entry-'));
+ const parent=fileURLToPath(new URL('../../../../../artifacts/W0-I/work-records-23/tmp/',import.meta.url));await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'record-entry-'));
  const receipts=new ForwardReceipts(join(root,'harness-relay.sqlite')),projects=new SqliteProjectIndex(join(root,'project-index.sqlite'));
  const task=randomUUID(),unknown:string[]=[],outputs:BackendToDesktop[]=[],states:DesktopWorkState[]=[];let dispatches=0,observations=0;
  const phases=['unknown','completed','unavailable','unavailable','completed','unknown','awaiting_confirmation','completed','awaiting_confirmation'] as const;

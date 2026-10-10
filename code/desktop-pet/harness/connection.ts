@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { DshEntryBinding } from '../../workbench/integration/engine-pins/dsh-native-entry.mjs';
 
 export type HarnessConnectionState = 'ready' | 'unavailable' | 'authentication_required' | 'incompatible';
 export interface HarnessConnectionSnapshot {
@@ -34,8 +35,10 @@ const nativeId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(val
 
 /** dsh 0.1.5-rc.1 Host protocol. New sessions are explicit, per-session relay compositions. */
 export class HarnessConnection {
-  constructor(private readonly launchUrl: () => Promise<string>, private readonly timeoutMs = 5000) {
+  constructor(private readonly launchUrl: () => Promise<string>, private readonly timeoutMs = 5000, private readonly sessionLocalModel = false,
+    private readonly nativeNavigationVersion: 0 | 1 | ((origin: string) => Promise<0 | 1>) = 0) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('Invalid connection timeout');
+    if (nativeNavigationVersion !== 0 && nativeNavigationVersion !== 1 && typeof nativeNavigationVersion !== 'function') throw new Error('Invalid native navigation capability');
   }
 
   async probe(): Promise<HarnessConnectionSnapshot> {
@@ -45,26 +48,39 @@ export class HarnessConnection {
   }
 
   async createRelaySession(sessionId: string, preset: string, cwd: string): Promise<void> {
+    await this.requireSessionModelScope();
     const value = await this.call('session/create', { request: { sessionId, agentPreset: preset, cwd } });
     if (value?.sessionId !== sessionId) throw new HarnessConnectionError('incompatible');
     // A deterministic title prevents the Host's optional first-prompt LLM title call.
     const title = 'Desktop pet relay ' + sessionId.slice(-8);
     const renamed = await this.call('session/rename', { request: { sessionId, title } });
     if (renamed?.title !== title || !Number.isSafeInteger(renamed.seq)) throw new HarnessConnectionError('incompatible');
-    const selected = await this.call('session/selectModel', { request: { sessionId, provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' } });
+    const selected = await this.selectSessionModel(sessionId);
     if (selected?.selected?.provider !== 'deepseek-official' || selected.selected.model !== 'deepseek-flash' || selected.selected.reasoningEffort !== 'high') throw new HarnessConnectionError('incompatible');
   }
 
   /** I installs this native composition without delegation, and owns confirmation before calling. */
   async createWorkSession(sessionId: string, cwd: string): Promise<void> {
     if (!nativeId(sessionId) || !cwd.startsWith('/') || /[\0\r\n]/.test(cwd)) throw new HarnessConnectionError('incompatible');
+    await this.requireSessionModelScope();
     const created = await this.call('session/create', { request: { sessionId, agentPreset: 'desktop-pet-work-v1', cwd } });
     if (created?.sessionId !== sessionId || created.agentPreset !== 'desktop-pet-work-v1') throw new HarnessConnectionError('incompatible');
     const title = 'Desktop pet work ' + sessionId.slice(-8);
     const renamed = await this.call('session/rename', { request: { sessionId, title } });
     if (renamed?.title !== title || !Number.isSafeInteger(renamed.seq)) throw new HarnessConnectionError('incompatible');
-    const selected = await this.call('session/selectModel', { request: { sessionId, provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' } });
+    const selected = await this.selectSessionModel(sessionId);
     if (selected?.selected?.provider !== 'deepseek-official' || selected.selected.model !== 'deepseek-flash' || selected.selected.reasoningEffort !== 'high') throw new HarnessConnectionError('incompatible');
+  }
+
+  private async requireSessionModelScope(): Promise<void> {
+    if (this.sessionLocalModel && (await this.call('session/modelCatalog', {}))?.sessionModelSelectionVersion !== 1)
+      throw new HarnessConnectionError('incompatible');
+  }
+  private async selectSessionModel(sessionId: string): Promise<any> {
+    const selected = await this.call('session/selectModel', { request: { sessionId, provider: 'deepseek-official',
+      model: 'deepseek-flash', reasoningEffort: 'high', ...(this.sessionLocalModel ? { scope: 'session' } : {}) } });
+    if (this.sessionLocalModel && selected?.scope !== 'session') throw new HarnessConnectionError('incompatible');
+    return selected;
   }
 
   /** No rewriting, implicit confirmation, retry, timeout cancellation, or local work queue. */
@@ -77,6 +93,25 @@ export class HarnessConnection {
   /** Actual Host root only, not a claimed session deep link. Browser authentication may be needed. */
   async workHostUrl(): Promise<string> {
     return (await this.launchEndpoint()).origin + '/';
+  }
+
+  /** Enabled only after the pinned native navigation extension is installed; binding comes from the original T3 reader. */
+  async workSessionUrl(binding: DshEntryBinding): Promise<string> {
+    if (this.nativeNavigationVersion === 0) throw new HarnessConnectionError('incompatible');
+    const target = { ...binding };
+    try {
+      // Match the installed dist/harness layout, as the existing launcher does for native integration modules.
+      const { dshSessionEntryUrl, validateDshEntryBinding } = await import(new URL('../../../workbench/integration/engine-pins/dsh-native-entry.mjs', import.meta.url).href);
+      const endpoint = await this.launchEndpoint();
+      const capability = typeof this.nativeNavigationVersion === 'function'
+        ? await this.nativeNavigationVersion(endpoint.origin) : this.nativeNavigationVersion;
+      const url = dshSessionEntryUrl(endpoint.origin, target, capability);
+      validateDshEntryBinding(target, await this.call('session/list', { _request: {} }, this.timeoutMs, endpoint), capability);
+      return url;
+    } catch (error) {
+      if (error instanceof HarnessConnectionError) throw error;
+      throw new HarnessConnectionError('incompatible');
+    }
   }
 
   /** Cold list/page only. Never starts/resumes work or grants an approval while observing it. */
@@ -238,17 +273,19 @@ export class HarnessConnection {
     }
   }
 
-  private async call(method: 'session/list' | 'session/create' | 'session/rename' | 'session/selectModel' | 'session/prompt' | 'session/page', args: object, timeoutMs = this.timeoutMs): Promise<any> {
+  private async call(method: 'session/list' | 'session/modelCatalog' | 'session/create' | 'session/rename' | 'session/selectModel' | 'session/prompt' | 'session/page', args: object, timeoutMs = this.timeoutMs, frozenEndpoint?: URL): Promise<any> {
     const result = (state: Exclude<HarnessConnectionState, 'ready'>): never => { throw new HarnessConnectionError(state); };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       // A launcher URL is a credential. Never follow redirects or send it to a configurable remote host.
-      const url = await this.launchEndpoint();
+      const url = frozenEndpoint ?? await this.launchEndpoint();
       const exchange = await fetch(url, { redirect: 'manual', signal: controller.signal });
       const cookie = exchange.headers.get('set-cookie')?.split(';')[0];
       await exchange.body?.cancel();
-      if (exchange.status !== 303 || exchange.headers.get('location') !== '/' || !cookie || !/^[A-Za-z0-9_-]+=[A-Za-z0-9_.-]+$/.test(cookie)) return result('authentication_required');
+      const location = exchange.headers.get('location');
+      if (exchange.status !== 303 || !(location === '/' || this.sessionLocalModel && location === './') ||
+          !cookie || !/^[A-Za-z0-9_-]+=[A-Za-z0-9_.-]+$/.test(cookie)) return result('authentication_required');
       const rpcId = randomUUID();
       const response = await fetch(url.origin + '/api/' + method, {
         method: 'POST', redirect: 'manual', signal: controller.signal,

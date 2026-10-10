@@ -25,7 +25,7 @@ async function setup(t: Parameters<typeof fixture>[0]) {
   return { c, defaults, voices, voice, settings };
 }
 
-test('registered example-voice appears only for its model and survives settings save/restart with old settings retained', async t => {
+test('registered Dania appears only for its model and survives settings save/restart with old settings retained', async t => {
   const { c, defaults, voices, voice, settings } = await setup(t);
   const choices = availableAdapters(c, voices).find(a => a.id === 'qwen-audio-tts')!.choices!;
   assert.ok(choices.find(v => v.configuration.model === voice.targetModel)!.voices!.some(v => v.id === voice.voiceId));
@@ -52,7 +52,7 @@ test('settings reject unknown IDs and a registered voice used with another exist
   assert.throws(() => validateManagedSettings(settings, c));
 });
 
-test('real retained example-voice sample traverses production factory with exact voice/zh binding and unchanged PCM, without network', async t => {
+test('real retained Dania sample traverses production factory with exact voice/zh binding and unchanged PCM, without network', async t => {
   const directory = process.env.DANIA_RETAINED_SAMPLE;
   if (!directory) { t.skip('Explicit retained provider evidence directory required'); return; }
   const { c, voices, settings } = await setup(t);

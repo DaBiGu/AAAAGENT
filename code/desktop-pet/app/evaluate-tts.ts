@@ -12,7 +12,7 @@ export async function evaluateTts(root: string, run: string, credentialFile: str
   if (!/^smoke-tts-[a-z0-9-]+$/.test(run)) throw new Error('Explicit evaluation operation ID required');
   const model = 'qwen3-tts-instruct-flash-2026-01-26';
   const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
-  const budget = new EvaluationBudget(`${root}/.local/model-evaluation/budget.json`, 'D09-S1-20260906-01', 10_000_000);
+  const budget = new EvaluationBudget(`${root}/artifacts/W0-I/model-evaluation/budget.json`, 'D09-S1-20260906-01', 10_000_000);
   const raw = await readFile(credentialFile, 'utf8');
   const section = raw.match(/^## Qwen \/ DashScope\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1];
   const keys = section?.match(/sk-[A-Za-z0-9_-]+/g) ?? [];
@@ -62,7 +62,7 @@ export async function evaluateTts(root: string, run: string, credentialFile: str
   } finally {
     await store.releaseScope(scope);
     Object.assign(report, { success, elapsedMs: Math.round(performance.now() - started), storeEntriesAfterCleanup: store.count, outcome, estimatedCostCNY: costMicros === null ? null : costMicros / 1_000_000 });
-    await writeFile(`${root}/.local/model-evaluation/${run}.json`, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
+    await writeFile(`${root}/artifacts/W0-I/model-evaluation/${run}.json`, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
     console.log(JSON.stringify(report));
   }
   return success;

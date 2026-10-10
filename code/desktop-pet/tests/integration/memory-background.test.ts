@@ -29,7 +29,7 @@ after(() => {
 
 for (const independent of [true, false]) {
   test(`actual SQLite foreground never waits for strict writer: classifier=${independent}`, { timeout: 10_000 }, async t => {
-    const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/memory-background-local-v1/tmp');
+    const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-I/memory-background-local-v1/tmp');
     mkdirSync(parent, { recursive: true });
     const directory = mkdtempSync(join(parent, 'integration-'));
     const store = new SqliteMemoryStore({ filename: join(directory, 'state.sqlite'), retention: CONFIRMED_RETENTION,

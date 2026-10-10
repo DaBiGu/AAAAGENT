@@ -3,7 +3,7 @@ import { assembleContext, type ContextOptions, type ContextSnapshot } from './co
 import { bindScope, sameScope } from './scope.js';
 import { SqliteMemoryStore } from './sqlite-store.js';
 
-export interface SqliteContextOptions extends Omit<ContextOptions, 'prompts'> { readonly summaryLimit: number }
+export interface SqliteContextOptions extends Omit<ContextOptions, 'prompts'> { readonly summaryLimit: number; readonly recentPageSize?: number }
 export function checkAbort(signal: AbortSignal): void { if (signal.aborted) throw signal.reason ?? new Error('memory_cancelled'); }
 export async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   checkAbort(signal);
@@ -21,7 +21,7 @@ export class SqliteMemoryPort implements MemoryPort {
   async context(scope: TurnScope, text: string, perception: PerceptionResult | null, signal: AbortSignal): Promise<DialogueContext> {
     return this.createContext(scope, text, perception, signal).context;
   }
-  protected createContext(scope: TurnScope, text: string, perception: PerceptionResult | null, signal: AbortSignal, excludePersonal=false): ContextSnapshot {
+  protected createContext(scope: TurnScope, text: string, perception: PerceptionResult | null, signal: AbortSignal, excludePersonal=false, currentMessageId?:string): ContextSnapshot {
     checkAbort(signal); const owned = bindScope(scope, scope.characterId);
     if (perception && !sameScope(owned, perception.scope)) throw new Error('perception_scope_mismatch');
     if (perception) {
@@ -29,16 +29,23 @@ export class SqliteMemoryPort implements MemoryPort {
       if (source?.state === 'active') this.store.recordPerception(owned, perception, [source.id]);
     }
     const privacyExcluded=excludePersonal||this.store.pending.has(owned.characterId);
-    const data = privacyExcluded?this.store.protectedRecent(owned,excludePersonal?0:this.options.maxRecentMessages):this.store.contextRecords(owned, text, this.options.maxRecentMessages, this.options.maxMemories, this.options.summaryLimit);
+    const foreground=this.store.foregroundRecords(owned,privacyExcluded,excludePersonal,this.options.recentPageSize);
+    const data=foreground.data;
     const evaluatedAt=this.store.now(),policyRevision=this.store.dynamics.policy().revision;
     const candidates=privacyExcluded?[]:this.store.recall.rank(owned,text,evaluatedAt);
     const scores=new Map(candidates.map(candidate=>[candidate.source.id,candidate.priority]));
-    const snapshot = assembleContext({ characterId: owned.characterId, contextRecords: requested => {
+    const candidateOrder=new Map(candidates.map((candidate,index)=>[candidate.source.id,index]));
+    let snapshot = assembleContext({ characterId: owned.characterId, contextRecords: requested => {
       bindScope(requested, owned.characterId); return {...data,memories:this.store.recall.references(owned,candidates)};
-    }, assertContextCurrent: (requested, revision) => this.store.assertContextCurrent(requested, revision) }, owned, text, privacyExcluded?null:perception, this.store.now(), {
-      ...this.options, ...(!privacyExcluded?{emotionBackground:this.store.emotion.background(owned),messageEmotions:data.recent.flatMap(m=>{const value=this.store.emotion.message(owned,m.id);return value?[value]:[]})}:{}),
-      memoryTieBreak:(a,b)=>candidates.findIndex(x=>x.source.id===a.id)-candidates.findIndex(x=>x.source.id===b.id), maxMemories:Math.min(6,this.options.maxMemories), relevance:memory=>scores.get(memory.id)??0, prompts: { [owned.characterId]: this.store.prompt(owned) },
+    }, recentTurns:()=>foreground.turns,hasUnreadRecent:()=>foreground.turns.hasUnread(),
+      ...(!privacyExcluded?{messageEmotion:(requested:TurnScope,id:string)=>this.store.emotion.message(requested,id)}:{}),assertContextCurrent: (requested, revision) => this.store.assertContextCurrent(requested, revision) }, owned, text, privacyExcluded?null:perception, this.store.now(), {
+      ...this.options,...(currentMessageId?{currentMessageId}:{}), ...(!privacyExcluded?{emotionBackground:this.store.emotion.background(owned)}:{}),
+      memoryTieBreak:(a,b)=>(candidateOrder.get(a.id)??0)-(candidateOrder.get(b.id)??0), relevance:memory=>scores.get(memory.id)??0, prompts: { [owned.characterId]: this.store.prompt(owned) },
     });
+    if(snapshot.context.contextBudget){
+      const exclusions=candidates.filter(candidate=>candidate.omission!==null).map(candidate=>({id:candidate.source.id,layer:'memory' as const,reason:candidate.omission!}));
+      snapshot={...snapshot,context:{...snapshot.context,contextBudget:{...snapshot.context.contextBudget,omissions:[...snapshot.context.contextBudget.omissions,...exclusions]}}};
+    }
     checkAbort(signal); return {...snapshot,privacyExcluded,recall:{candidates,policyRevision,evaluatedAt,dataRevision:data.revision}};
   }
   maintenanceInput(scope: TurnScope, text: string): MemoryMaintenanceInput {

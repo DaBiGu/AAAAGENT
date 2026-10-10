@@ -1,9 +1,18 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { readVideoPresentation } from './video-presentation.js';
 /** Build fixed local routes from the trusted installed manifest. Never resolve a requested path. */
 export async function presentationAssetRoutes(projectRoot: string): Promise<ReadonlyMap<string, string>> {
   const desktop = resolve(projectRoot, 'code/desktop-pet/desktop'), base = resolve(desktop, 'assets/local-model');
-  const refs = JSON.parse(await readFile(resolve(base, 'pet.model3.json'), 'utf8')).FileReferences;
+  let manifest: string;
+  try { manifest = await readFile(resolve(base, 'pet.model3.json'), 'utf8'); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const video = await readVideoPresentation(projectRoot);
+    if (video) return video.routes;
+    throw error;
+  }
+  const refs = JSON.parse(manifest).FileReferences;
   const paths: string[] = ['pet.model3.json', 'presets.json', refs.Moc, refs.Physics, refs.DisplayInfo, ...refs.Textures,
     ...refs.Expressions.map((x: { File: string }) => x.File), ...Object.values(refs.Motions as Record<string, { File: string }[]>).flat().map(x => x.File)];
   const routes = new Map<string, string>();

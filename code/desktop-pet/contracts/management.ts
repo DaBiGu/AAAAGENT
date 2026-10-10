@@ -5,6 +5,7 @@ import type { CharacterId } from './index.js';
 export const MANAGEMENT_API_VERSION = 1 as const;
 export type ProviderSlot = 'asr' | 'dialogue' | 'memory_turn' | 'summary' | 'perception' | 'tts' | 'admission';
 export interface ProviderSelection {
+  readonly contextWindowTokens?: number;
   adapterId: string;
   provider: 'dashscope' | 'deepseek';
   model: string;
@@ -23,6 +24,9 @@ export interface ProviderSelection {
   temperature?: number;
 }
 export interface ContextSettings {
+  targetInputTokens?: number;
+  currentEmotionReserveTokens?: number;
+  /** Compatibility fields used only for independent background reads after migration. */
   maxRecentMessages: number;
   maxMemories: number;
   summaryLimit: number;
@@ -35,6 +39,8 @@ export interface ManagedSettings {
   context: ContextSettings;
 }
 export interface SettingsSnapshot {
+  readonly savedBudget?: import('./context-budget.js').InputBudgetInfo;
+  readonly effectiveBudget?: import('./context-budget.js').InputBudgetInfo;
   revision: number;
   effectiveRevision: number;
   savedAt: string | null;
@@ -116,6 +122,7 @@ export interface RecordEditResult {
   status: 'applied'; characterId: CharacterId; operationId: string; revision: number; record: ManagedRecord; invalidatedIds: readonly string[];
 }
 export interface ManagedContext {
+  readonly contextBudget?: import('./context-budget.js').ContextBudgetReport;
   characterId: CharacterId;
   revision: number;
   query: string;

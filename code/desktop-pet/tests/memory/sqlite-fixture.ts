@@ -10,7 +10,7 @@ export const scope = (characterId: CharacterId = 'companion', turnId = 'turn-1')
 export const message = (id: string, text: string, characterId: CharacterId = 'companion', createdAt = NOW): ConversationMessage => ({ characterId, id, role: 'user', text, createdAt });
 export const change = (operation: MemoryOperation, operationId: string, owned = scope()): MemoryChange => ({ scope: owned, operation, operationId, reason: 'controlled test', createdAt: NOW });
 export function fixture(maxBytes = CONFIRMED_RETENTION.transcriptMaxBytes, artifactPackage = 'companion-step1-01') {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), `../../../../../.local/${artifactPackage}/tmp`);
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), `../../../../../artifacts/W3/${artifactPackage}/tmp`);
   mkdirSync(parent, {recursive:true});
   const directory = mkdtempSync(join(parent, 'case-'));
   const filename = join(directory, 'pet.sqlite');

@@ -103,7 +103,7 @@ export class DesktopRuntime {
           const active: Active = { input, signal: turn.signal, finishing: false };
           this.active = active;
           this.lastEmotionScope=input.scope;
-          this.ports.work?.beginInput?.(input.scope, command.workBinding);
+          this.ports.work?.beginInput?.(input.scope, command.workBinding, command.workbenchBinding);
           this.emit({ type: 'turn', input }); this.presentation();
           if (turn.input.kind === 'text') { this.run(active); return; }
           active.ready = this.ports.capture.start(turn.input.scope, turn.signal);

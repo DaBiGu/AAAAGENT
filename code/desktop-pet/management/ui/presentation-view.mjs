@@ -3,16 +3,25 @@ const categoryNames={all:'全部',expression:'表情',pose:'姿势',appearance:'
 let coreReady;
 function loadCore(){if(globalThis.Live2DCubismCore)return Promise.resolve();return coreReady??=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/presentation-runtime/core.js';script.onload=resolve;script.onerror=()=>{coreReady=null;script.remove();reject(Error('模型运行文件加载失败，请刷新重试。'));};document.head.append(script);});}
 const sourceNames={'model-expression':'模型预设','model-motion':'模型动画',procedural:'程序动作'};
+function videoPreview(canvas) {
+  const video=el('video',{class:'preset-canvas','aria-label':'当前视频预览'});
+  video.muted=true;video.playsInline=true;video.preload='none';canvas.hidden=true;canvas.after(video);
+  let disposed=false;
+  const stop=()=>{video.pause();video.removeAttribute('src');video.load();};
+  return {async select(id){if(disposed||!/^[a-zA-Z0-9_-]{1,100}$/.test(id))throw Error('视频预设不可用');stop();video.src='/presentation-video/'+id+'.webm';await video.play();},
+    stop,restore:stop,resize(){},dispose(){disposed=true;stop();video.remove();canvas.hidden=false;}};
+}
 export function createPresentationView(client,render) {
   const canvas=el('canvas',{class:'preset-canvas','aria-label':'当前模型真实预览'});
   const stage=el('div',{class:'preset-stage'},canvas), status=el('p',{class:'preset-preview-status',role:'status'},'正在准备模型…');
   let data=null,query='',category='all',selected=null,engine=null,loading=null,active=false,epoch=0,saving=false,error='',message='';
   const resize=new ResizeObserver(()=>engine?.resize());resize.observe(stage);
   async function ensureEngine(){
-    if(engine)return engine;if(loading)return loading;const ticket=epoch;
-    loading=loadCore().then(()=>import('./presentation-preview.js')).then(m=>m.createPresentationPreview({canvas,onStatus:value=>{
+    if(engine)return engine;if(loading)return loading;if(!data)return null;const ticket=epoch;
+    const prepare=data.catalog.modelId==='dsh-video-pet'?Promise.resolve(videoPreview(canvas)):loadCore().then(()=>import('./presentation-preview.js')).then(m=>m.createPresentationPreview({canvas,onStatus:value=>{
       if(ticket!==epoch)return;const text=typeof value==='string'?value:value?.message;if(text)status.textContent=text;
-    },assetBase:new URL('/presentation-assets/',location.href).href,shaderBase:new URL('/presentation-shaders/',location.href).href})).then(value=>{
+    },assetBase:new URL('/presentation-assets/',location.href).href,shaderBase:new URL('/presentation-shaders/',location.href).href}));
+    loading=prepare.then(value=>{
       if(ticket!==epoch||!active){value.dispose();return null;}engine=value;status.textContent='模型已就绪，选择一项开始预览。';render();return value;
     }).catch(e=>{if(ticket===epoch){status.textContent='模型暂时无法预览';error=e.message;render();}return null;}).finally(()=>{if(ticket===epoch)loading=null;});
     return loading;
@@ -25,7 +34,7 @@ export function createPresentationView(client,render) {
     const ids=new Set(data.policy.enabledIds);if(enabled)ids.add(preset.id);else ids.delete(preset.id);
     try{data=await client.request('/api/presentation',{method:'PUT',body:{modelId:data.catalog.modelId,expectedRevision:data.policy.revision,enabledIds:[...ids]}});message=`已保存：${preset.label}${enabled?'允许':'不再'}自动使用。`;}
     catch(e){error=e.message;if(e.status===409)await refresh();}finally{saving=false;render();}}
-  function activate(){if(active)return;active=true;epoch++;void refresh();queueMicrotask(()=>void ensureEngine());}
+  function activate(){if(active)return;active=true;epoch++;void refresh().then(()=>ensureEngine());}
   function deactivate(){if(!active)return;active=false;epoch++;engine?.dispose();engine=null;loading=null;selected=null;}
   function view(){
     activate();const items=data?.catalog.items??[],enabled=new Set(data?.policy.enabledIds??[]);
@@ -48,7 +57,7 @@ export function createPresentationView(client,render) {
       })),!filtered.length&&notice(data?'没有找到匹配的预设。':'正在读取预设目录…'));
     return el('div',{class:'presentation-page'},stats,error&&notice(error,'error'),message&&notice(message,'success'),saving&&notice('正在保存自动使用设置…'),
       el('div',{class:'preset-layout'},preview,list),data&&el('details',{class:'card preset-details'},el('summary',{},'素材详情'),
-        el('p',{},'36个模型表情或外观文件、1个模型待机动画、3项程序动作。数量不等于情绪种类或新生成动画。'),
+        el('p',{},'当前安装目录中有 '+items.length+' 项可用预设；只播放已有资源，不生成新动画。'),
         el('p',{},'模型版本：'+data.catalog.modelId),el('p',{},'设置版本：'+data.policy.revision),el('p',{},'允许列表按当前模型保存。未开放的外观预设不会交给聊天模型；恢复预览保持现有水印策略。')));
   }
   return {view,deactivate,refresh,dispose(){deactivate();resize.disconnect();}};

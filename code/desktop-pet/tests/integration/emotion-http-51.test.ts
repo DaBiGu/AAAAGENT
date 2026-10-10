@@ -26,7 +26,7 @@ test('actual HTTP reads runtime SQLite emotion state and source editing removes 
  const {confirmedInvitationPolicy}=await import('../../companion/invitations.js');
  const {SqliteManagementMemoryPort}=await import('../../memory/management-port.js');
  const {lifecycle}=await import('../memory/lifecycle-fixture.js');
- const base=fileURLToPath(new URL('../../../../../.local/emotion-state-51/tmp/',import.meta.url));mkdirSync(base,{recursive:true});const directory=mkdtempSync(join(base,'http-'));
+ const base=fileURLToPath(new URL('../../../../../artifacts/W0-I/emotion-state-51/tmp/',import.meta.url));mkdirSync(base,{recursive:true});const directory=mkdtempSync(join(base,'http-'));
  const store=new SqliteMemoryStore({filename:join(directory,'synthetic.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai')});
  const scope={characterId:'companion' as const,sessionId:'synthetic-http',turnId:'synthetic-user',generation:1},source={id:'synthetic-user:user',version:1};
  store.append(scope,[{characterId:'companion',id:source.id,role:'user',text:'我有点难过',createdAt:new Date().toISOString(),emotionObservations:[{subject:'user',label:'sad',intensity:null,confidence:null,provenance:'user_explicit',sources:[source]}]}]);

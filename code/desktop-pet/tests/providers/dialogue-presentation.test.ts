@@ -7,7 +7,7 @@ import { ProviderTransport } from '../../providers/transport.js';
 
 const scope: TurnScope = { characterId: 'friend', sessionId: 'presentation', turnId: 'turn', generation: 1 };
 const input: DialogueRequest = { scope, text: '今天我把一个难题解决了。',
-  context: { scope, characterPrompt: '朋友', recent: [], summary: '', memories: [], perception: null, inputTokenBudget: 4096 } };
+  context: { scope, characterPrompt: '朋友', recent: [], summary: '', memories: [], perception: null, inputTokenBudget: 200000 } };
 function harness(expression: ExpressionIntent) {
   const requests: { messages: { role: string; content: string }[] }[] = [];
   const reply = { text: '听起来你为这件事花了不少心思。愿意说说是怎么解决的吗？', expression };

@@ -19,7 +19,7 @@ test('failed uncertain hold preserves later complete naming conversation while o
  store.close();store=f.open();port=lifecycle(store);
  const two=scope('companion','two');await port.append(two,[message('two:user','Mira and Pip. Just those two!')]);
  const c2=await port.foregroundContext(two,'two:user','Mira and Pip. Just those two!',null,signal());
- assert.deepEqual(c2.recent.map(m=>m.id),['one:user','one:assistant','two:user']);
+ assert.deepEqual(c2.recent.map(m=>m.id),['one:user','one:assistant']);
  assert.equal(c2.summary,'');assert.deepEqual(c2.memories,[]);assert.ok(!JSON.stringify(c2).includes('old private place'));
  assert.equal(store.pending.list('companion')[0]!.status,'failed');
  await port.appendAssistant(two,replyMessage(two,'Yes, those are my two names.'),c2,'two:user',signal());
@@ -33,12 +33,12 @@ test('failed forget still excludes earlier content; a newer hold invalidates the
  port.beginPendingMutation(hold,'hold:user',{request:'forget',sources:null});store.pending.fail(hold,'hold:user');
  await port.append(fresh,[message('fresh:user','new harmless hobby')]);
  const context=await port.foregroundContext(fresh,'fresh:user','new harmless hobby',null,signal());
- assert.deepEqual(context.recent.map(m=>m.id),['fresh:user']);assert.ok(!JSON.stringify(context).includes('private old location'));
+ assert.deepEqual(context.recent.map(m=>m.id),[]);assert.ok(!JSON.stringify(context).includes('private old location'));
  await port.append(later,[message('later:user','forget the new hobby too')]);port.beginPendingMutation(later,'later:user',{request:'forget',sources:null});
  assert.throws(()=>port.assertContextCurrent(context),/stale_context/);
  const last=scope('companion','last');await port.append(last,[message('last:user','unrelated fresh question')]);
  const final=await port.foregroundContext(last,'last:user','unrelated fresh question',null,signal());
- assert.deepEqual(final.recent.map(m=>m.id),['last:user']);assert.deepEqual(final.memories,[]);
+ assert.deepEqual(final.recent.map(m=>m.id),[]);assert.deepEqual(final.memories,[]);
  assert.equal(store.pending.list('companion').length,2);
 });
 
@@ -71,9 +71,9 @@ test('budget pressure keeps latest complete turns ahead of recall and never back
  const owned=scope('companion','current');
  const recent=[message('old:user','old'),{...message('old:assistant','old answer'),role:'assistant' as const},message('latest:user','X'.repeat(200)),{...message('latest:assistant','latest answer'),role:'assistant' as const},message('current:user','these two')];
  const reader={characterId:'companion' as const,contextRecords:()=>({characterId:'companion' as const,revision:1,recent,summaries:[],memories:[]}),assertContextCurrent(){}};
- const options={prompts:{companion:'synthetic'},inputTokenBudget:100,maxRecentMessages:12,maxMemories:0,countTokens:(c:{recent:readonly {text:string}[]})=>c.recent.reduce((n,m)=>n+m.text.length,0),relevance:()=>1};
+ const options={currentMessageId:'current:user',prompts:{companion:'synthetic'},inputTokenBudget:100,maxRecentMessages:12,maxMemories:0,countTokens:(c:{recent:readonly {text:string}[]})=>c.recent.reduce((n,m)=>n+m.text.length,0),relevance:()=>1};
  const result=assembleContext(reader,owned,'these two',null,'2026-09-16T00:00:00Z',options);
- assert.deepEqual(result.context.recent.map(m=>m.id),['current:user']);assert.ok(result.omittedIds.includes('latest:user'));assert.ok(result.omittedIds.includes('latest:assistant'));assert.ok(result.omittedIds.includes('old:user'));
+ assert.deepEqual(result.context.recent.map(m=>m.id),[]);assert.ok(result.omittedIds.includes('latest:user'));assert.ok(result.omittedIds.includes('latest:assistant'));assert.ok(result.omittedIds.includes('old:user'));
  const full=assembleContext(reader,owned,'these two',null,'2026-09-16T00:00:00Z',{...options,inputTokenBudget:1000,maxRecentMessages:4});
- assert.deepEqual(full.context.recent.map(m=>m.id),['latest:user','latest:assistant','current:user']);
+ assert.deepEqual(full.context.recent.map(m=>m.id),['old:user','old:assistant','latest:user','latest:assistant']);
 });

@@ -21,7 +21,7 @@ export async function cleanupDeepSeekCredential(root: string, credentialFile: st
   const stat = await lstat(credentialFile); assert.ok(stat.isFile() && !stat.isSymbolicLink());
   assert.equal(stat.mode & 0o777, 0o600);
   await unlink(credentialFile);
-  await writeFile(`${root}/.local/deepseek-comparison/credential-cleanup.json`, JSON.stringify({ deleted: true, deletedAt: new Date().toISOString(), reason, scope: 'Only explicit task temporary api-key file outside project. User original credentials unchanged.', secretCopied: false, directoryRetained: true }) + '\n', { flag: 'wx' });
+  await writeFile(`${root}/artifacts/W0-I/deepseek-comparison/credential-cleanup.json`, JSON.stringify({ deleted: true, deletedAt: new Date().toISOString(), reason, scope: 'Only explicit task temporary api-key file outside project. User original credentials unchanged.', secretCopied: false, directoryRetained: true }) + '\n', { flag: 'wx' });
 }
 
 export async function evaluateDeepSeekComparison(root: string, credentialFile: string, runId: string): Promise<void> {
@@ -30,17 +30,17 @@ export async function evaluateDeepSeekComparison(root: string, credentialFile: s
   const phase = await loadDeepSeekComparison(root);
   const board = JSON.parse(await readFile(`${root}/docs/agent/blackboard/CURRENT.json`, 'utf8'));
   assert.equal(board.deepseek_comparison.status, 'ready_for_bounded_comparison', 'Integrated comparison must be published ready before generation');
-  assert.equal(comparisonHash(await readFile(`${root}/.local/deepseek-comparison/inputs-manifest.json`)), board.deepseek_comparison.inputs_manifest_sha256);
+  assert.equal(comparisonHash(await readFile(`${root}/artifacts/W0-I/deepseek-comparison/inputs-manifest.json`)), board.deepseek_comparison.inputs_manifest_sha256);
   const index = await reviewedComparisonCount(root, phase.bundle, phase.configSha256);
   const fixture = phase.bundle.cases[index]; assert.ok(fixture, 'All comparison cases already reviewed');
-  const directory = `${root}/.local/deepseek-comparison`, out = `${root}/.local/${runId}`;
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`, out = `${root}/artifacts/W0-I/${runId}`;
   await access(out).then(() => { throw new Error('Comparison output already exists'); }, (error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
   assert.equal(basename(credentialFile), 'api-key'); assert.ok(basename(dirname(credentialFile)).startsWith('movefile-deepseek-comparison-'));
   const stat = await lstat(credentialFile), parent = await lstat(dirname(credentialFile));
   assert.ok(stat.isFile() && !stat.isSymbolicLink() && parent.isDirectory() && !parent.isSymbolicLink());
   assert.equal(stat.mode & 0o777, 0o600); assert.equal(parent.mode & 0o777, 0o700);
   let key = (await readFile(credentialFile, 'utf8')).trim(); assert.ok(key && !/\s/.test(key), 'Invalid temporary credential format');
-  const lockPath = `${root}/.local/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx');
+  const lockPath = `${root}/artifacts/W0-I/model-evaluation/backend.lock`, lock = await open(lockPath, 'wx');
   await lock.writeFile(JSON.stringify({ pid: process.pid, phase: DEEPSEEK_PHASE, runId, startedAt: new Date().toISOString() }) + '\n');
   const codeRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   const countMemory = (input: MemoryTurnInput) => memoryTurnInputUpperBound(input, 'quoted-v2');

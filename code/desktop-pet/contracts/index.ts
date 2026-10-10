@@ -3,6 +3,7 @@ export const CONTRACT_VERSION = '0.9.0' as const;
 /** Production voice capture: audio is required; camera contributes at most three actual frames. */
 export const MAX_CAPTURE_IMAGES = 3 as const;
 import type { WorkInputBinding } from './desktop-work.js';
+import type { WorkbenchVoiceBinding } from './workbench.js';
 import type { CharacterId } from './character.js';
 export type { CharacterId } from './character.js';
 export { COMPANION_ID, COMPANION_LABEL, PRODUCT_CHARACTERS, isCharacterId, isProductCharacter } from './character.js';
@@ -84,6 +85,8 @@ export interface ConversationMessage {
   readonly createdAt: string;
 }
 export interface DialogueContext extends Scoped {
+  /** Diagnostics excluded from provider prompt data. */
+  readonly contextBudget?: import('./context-budget.js').ContextBudgetReport;
   readonly emotionBackground?: import('./emotion-state.js').EmotionBackground;
   readonly characterPrompt: string;
   readonly recent: readonly ConversationMessage[];
@@ -185,7 +188,11 @@ export interface VisualPerceptionResult extends Scoped {
 }
 export interface VisualPerceptionProvider { perceive(input: VisualPerceptionInput, signal: AbortSignal): Promise<VisualPerceptionResult> }
 export interface PerceptionProvider { perceive(input: CapturedInput, signal: AbortSignal): Promise<PerceptionResult> }
-export interface DialogueProvider { reply(input: DialogueRequest, signal: AbortSignal): Promise<DialogueReply> }
+export interface DialogueProvider {
+  /** Freeze this turn's clock, visual policy and execution status before context selection. */
+  prepare?(input: Omit<DialogueRequest, 'context'>): void;
+  reply(input: DialogueRequest, signal: AbortSignal): Promise<DialogueReply>;
+}
 export interface TtsProvider { synthesize(input: TtsRequest, signal: AbortSignal): Promise<TtsResult> }
 export interface MemoryMaintenanceProvider { propose(input: MemoryMaintenanceInput, signal: AbortSignal): Promise<readonly MemoryChange[]> }
 export interface CapturePort {
@@ -203,9 +210,9 @@ export interface MemoryPort {
   maintain(input: MemoryMaintenanceInput, signal: AbortSignal): Promise<readonly MemoryChangeResult[]>;
 }
 export type DesktopCommand =
-  | { readonly type: 'submit_text'; readonly text: string; readonly clientRequestId?: string; readonly workBinding?: WorkInputBinding }
+  | { readonly type: 'submit_text'; readonly text: string; readonly clientRequestId?: string; readonly workBinding?: WorkInputBinding; readonly workbenchBinding?: WorkbenchVoiceBinding }
   | { readonly type: 'acknowledge_introduction'; readonly introductionId: string }
-  | { readonly type: 'start_voice'; readonly clientRequestId?: string; readonly workBinding?: WorkInputBinding; readonly wakeKeyword?: string }
+  | { readonly type: 'start_voice'; readonly clientRequestId?: string; readonly workBinding?: WorkInputBinding; readonly workbenchBinding?: WorkbenchVoiceBinding; readonly wakeKeyword?: string }
   | { readonly type: 'finish_voice' | 'cancel' }
   | { readonly type: 'click_invitation'; readonly invitationId: string };
 export type DesktopEvent =
@@ -230,3 +237,6 @@ export * from './memory-import.js';
 export type * from './self-setup.js';
 
 export type * from './emotion-state.js';
+export { PROJECT_PROVIDER_CONTEXT_VERSION } from './project-provider-context.js';
+export type * from './project-provider-context.js';
+export type * from './project-terminal-processing.js';

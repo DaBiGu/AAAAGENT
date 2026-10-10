@@ -37,14 +37,14 @@ export async function loadOriginalSemanticCases(root: string): Promise<{ cases: 
     if (expected) assert.equal(sha, expected, `Original input changed: ${path}`);
     inputPins[path] = sha; return JSON.parse(bytes.toString());
   };
-  await read('.local/prompt-trial-inputs/known.json');
-  const prior = '.local/lifecycle-sources-v1', review = await read(`${prior}/review.json`);
+  await read('artifacts/W0-I/prompt-trial-inputs/known.json');
+  const prior = 'artifacts/W0-I/lifecycle-sources-v1', review = await read(`${prior}/review.json`);
   const original = (name: string) => read(`${prior}/${name}`, review.fingerprints[name]);
   const update = await original('automatic-update-decision.json'), plans = await original('plan-traces.json'), recall = await original('automatic-update-recall.json');
   const updateInput: MemoryTurnInput = plans.find((entry: { input?: MemoryTurnInput }) => entry.input?.scope.turnId === update.scope.turnId).input;
   assert.equal(updateInput.sources.find(source => source.id === updateInput.currentMessageId)?.text, update.text);
-  const manifest = await read('.local/deepseek-comparison/inputs-manifest.json');
-  const expanded: MemoryTurnInput = await read('.local/source-budget-v2/complete-input.json', manifest.expandedInputSha256);
+  const manifest = await read('artifacts/W0-I/deepseek-comparison/inputs-manifest.json');
+  const expanded: MemoryTurnInput = await read('artifacts/W0-I/source-budget-v2/complete-input.json', manifest.expandedInputSha256);
   return { cases: [...known.cases.map(fixture => ({ id: fixture.id, input: fixture.input, records: fixture.records, query: fixture.criteria.query, criteria: fixture.criteria })),
     { id: 'natural-update', input: updateInput, records: update.sourcesBefore, query: recall.text }], expanded, inputPins };
 }
@@ -197,7 +197,7 @@ export async function runSemanticCase(options: SemanticCaseOptions): Promise<Sem
 export async function prepareSemanticEvaluation(root: string, offlineRunId = 'originals-final'): Promise<object> {
   assert.match(offlineRunId, /^[a-z0-9-]+$/);
   const originals = await loadOriginalSemanticCases(root), directory = `${root}/${SEMANTIC_DIRECTORY}`;
-  const verifiedPath = `.local/memory-semantic-offline-v1/${offlineRunId}`;
+  const verifiedPath = `artifacts/W0-I/memory-semantic-offline-v1/${offlineRunId}`;
   const verification = JSON.parse(await readFile(`${root}/${verifiedPath}/manifest.json`, 'utf8'));
   const ticketBytes = await readFile(`${root}/${verifiedPath}/ticket-inputs.json`);
   assert.equal(semanticHash(ticketBytes), verification.ticketInputsSha256); assert.equal(verification.originalCasesPassed, 9);
@@ -215,7 +215,7 @@ export async function prepareSemanticEvaluation(root: string, offlineRunId = 'or
       body: request, requestBytes: Buffer.byteLength(JSON.stringify(request)), requestSha256: semanticHash(JSON.stringify(request)) };
   });
   assert.equal(new Set(requests.map(r => r.systemSha256)).size, 1, 'One fixed semantic system required');
-  const registration = JSON.parse(await readFile(`${root}/.local/memory-semantic-offline-v1/registration.json`, 'utf8'));
+  const registration = JSON.parse(await readFile(`${root}/artifacts/W0-I/memory-semantic-offline-v1/registration.json`, 'utf8'));
   const tracked = execFileSync('git', ['ls-files', '-z', 'code/desktop-pet'], { cwd: root }).toString().split('\0').filter(Boolean);
   const paths = new Set<string>([...tracked, ...Object.keys(registration.fileOwners)]);
   const compiled: string[] = [];
@@ -229,14 +229,14 @@ export async function prepareSemanticEvaluation(root: string, offlineRunId = 'or
   await walk('code/desktop-pet/dist'); assert.ok(compiled.length > 0, 'Build the reviewed candidate first');
   for (const path of compiled) paths.add(path);
   const sourcePins = Object.fromEntries(await Promise.all([...paths].sort().map(async path => [path, semanticHash(await readFile(`${root}/${path}`))])));
-  const pricing = JSON.parse(await readFile(`${root}/.local/memory-semantic-validation-plan/pricing-and-budget.json`, 'utf8'));
-  const budgetBytes = await readFile(`${root}/.local/model-evaluation/budget.json`);
+  const pricing = JSON.parse(await readFile(`${root}/artifacts/W0-I/memory-semantic-validation-plan/pricing-and-budget.json`, 'utf8'));
+  const budgetBytes = await readFile(`${root}/artifacts/W0-I/model-evaluation/budget.json`);
   assert.equal(semanticHash(budgetBytes), pricing.sharedBudgetReadonly.sha256, 'Shared budget changed since pricing review');
   const budget = JSON.parse(budgetBytes.toString()); assert.equal(budget.blocked, false); assert.ok(budget.entries.every((entry: { status: string }) => entry.status === 'settled'));
   const artifactPins = { ...originals.inputPins };
   artifactPins[`${verifiedPath}/manifest.json`] = semanticHash(await readFile(`${root}/${verifiedPath}/manifest.json`));
   artifactPins[`${verifiedPath}/ticket-inputs.json`] = semanticHash(ticketBytes);
-  for (const path of ['.local/prompt-trial-inputs/STOPPED.json', '.local/deepseek-comparison/STOPPED.json', '.local/deepseek-comparison/config.json']) {
+  for (const path of ['artifacts/W0-I/prompt-trial-inputs/STOPPED.json', 'artifacts/W0-I/deepseek-comparison/STOPPED.json', 'artifacts/W0-I/deepseek-comparison/config.json']) {
     artifactPins[path] = semanticHash(await readFile(`${root}/${path}`)); assert.equal(artifactPins[path], pricing.protectedReferences[path]);
   }
   const config: SemanticPhaseConfig = { phaseId: SEMANTIC_PHASE, model: SEMANTIC_MODEL, endpoint: SEMANTIC_ENDPOINT, parameters: SEMANTIC_PARAMETERS,
@@ -259,7 +259,7 @@ export async function prepareSemanticEvaluation(root: string, offlineRunId = 'or
 /** Prepare only the registered one-case candidate. No approval, credential, Store or ledger transaction is created. */
 export async function prepareSemanticRawRecheck(root: string): Promise<object> {
   const profile = semanticPhaseProfile(SEMANTIC_RECHECK_PHASE), directory = `${root}/${profile.directory}`;
-  const support = '.local/semantic-recheck-support-v1';
+  const support = 'artifacts/W0-I/semantic-recheck-support-v1';
   const bytes = (path: string) => readSemanticPinnedFile(root, path);
   const read = async (path: string) => JSON.parse((await bytes(path)).toString());
   const registration = await read(`${support}/registration.json`);
@@ -292,13 +292,13 @@ export async function prepareSemanticRawRecheck(root: string): Promise<object> {
   assert.equal(format.inputUpperBound, candidate.input_upper_bound); assert.ok(format.inputUpperBound <= 32768);
   const currentSystemRequest = structuredClone(frozen.body); currentSystemRequest.messages[0].content = format.system;
   assert.deepEqual(request, currentSystemRequest, 'Original request changed beyond reviewed system');
-  const reviewedPair = await read('.local/semantic-field-scope-v1/main-paired/manifest.json');
+  const reviewedPair = await read('artifacts/W0-I/semantic-field-scope-v1/main-paired/manifest.json');
   assert.equal(reviewedPair.modelCalls, 0); assert.equal(reviewedPair.actualNetwork, false);
   assert.deepEqual(reviewedPair.outcomes.map((item: { mode: string; passed: boolean }) => [item.mode, item.passed]), [['preserved-failure', false], ['valid-original', true]]);
-  const measured = await read('.local/semantic-field-scope-v1/main-payload-check.json');
+  const measured = await read('artifacts/W0-I/semantic-field-scope-v1/main-payload-check.json');
   assert.equal(measured.entries.find((item: { id: string }) => item.id === 'raw-only').requestSha256, candidate.request_sha256);
   // Pricing remains a historical reference. Its obsolete 116-entry ledger SHA is deliberately not reused.
-  const budgetBytes = await bytes('.local/model-evaluation/budget.json'), budget = JSON.parse(budgetBytes.toString());
+  const budgetBytes = await bytes('artifacts/W0-I/model-evaluation/budget.json'), budget = JSON.parse(budgetBytes.toString());
   assert.equal(semanticHash(budgetBytes), proposal.ledger_readonly.sha256); assert.equal(budget.entries.length, 117);
   assert.equal(budget.batchId, 'D09-S1-20260906-01'); assert.equal(budget.limitMicros, 10_000_000); assert.equal(budget.blocked, false);
   assert.ok(budget.entries.every((entry: { status: string; actualMicros: number }) => entry.status === 'settled' && Number.isSafeInteger(entry.actualMicros) && entry.actualMicros >= 0));
@@ -316,8 +316,8 @@ export async function prepareSemanticRawRecheck(root: string): Promise<object> {
   const sourcePins = Object.fromEntries(await Promise.all([...new Set(paths)].sort().map(async path => [path, semanticHash(await bytes(path))])));
   const artifactPins: Record<string, string> = { ...originals.inputPins };
   const references = [...profile.protectedPaths, `${support}/registration.json`, `${support}/verification.json`, registration.proposal,
-    '.local/memory-semantic-validation-plan/pricing-and-budget.json', '.local/semantic-field-scope-v1/review.json',
-    '.local/semantic-field-scope-v1/main-paired/manifest.json', '.local/semantic-field-scope-v1/main-payload-check.json'];
+    'artifacts/W0-I/memory-semantic-validation-plan/pricing-and-budget.json', 'artifacts/W0-I/semantic-field-scope-v1/review.json',
+    'artifacts/W0-I/semantic-field-scope-v1/main-paired/manifest.json', 'artifacts/W0-I/semantic-field-scope-v1/main-payload-check.json'];
   for (const path of references) artifactPins[path] = semanticHash(await bytes(path));
   const requests = [{ id: 'raw-only', input: frozen.input, inputSha256: semanticInputHash(frozen.input), systemSha256: semanticHash(format.system),
     systemBytes: format.systemBytes, inputUpperBound: format.inputUpperBound, body: request, requestBytes: Buffer.byteLength(JSON.stringify(request)), requestSha256: semanticHash(JSON.stringify(request)) }];
@@ -333,7 +333,7 @@ export async function prepareSemanticRawRecheck(root: string): Promise<object> {
     priorBudget: { count: budget.entries.length, entriesSha256: semanticHash(JSON.stringify(budget.entries)) }, cases: [{ id: 'raw-only', maxAttempts: 1 }] };
   await save('config.json', config);
   const checked = await loadSemanticPhase(root, false, profile.phaseId);
-  assert.deepEqual(await bytes('.local/model-evaluation/budget.json'), budgetBytes);
+  assert.deepEqual(await bytes('artifacts/W0-I/model-evaluation/budget.json'), budgetBytes);
   const receipt = { status: 'prepared_inactive_not_paid_authorization', phaseId: profile.phaseId, codeRef, configSha256: checked.configSha256,
     promptSha256: config.promptSha256, requestSha256: requests[0]!.requestSha256, priorBudgetSha256: semanticHash(budgetBytes), priorEntries: 117,
     sourceRuntimePins: Object.keys(sourcePins).length, artifactPins: Object.keys(artifactPins).length, maxAttempts: 1, phaseLimitMicros: 4_000_000,
@@ -365,7 +365,7 @@ export async function prepareRegisteredSemanticBatch(root: string, phaseId: Sema
     assert.notEqual(registration.comparison.phaseId, phaseId);
     assert.deepEqual(registration.cases, [{ id: 'raw-only', maxAttempts: 1 }]);
     assert.deepEqual(Object.keys(registration.pricingEvidence).sort(), ['path', 'sha256']);
-    assert.ok(registration.pricingEvidence.path.startsWith('.local/'));
+    assert.ok(registration.pricingEvidence.path.startsWith('artifacts/W0-I/'));
     assert.equal(semanticHash(await bytes(registration.pricingEvidence.path)), registration.pricingEvidence.sha256);
   }
   assert.ok(typeof registration.justification === 'string' && registration.justification.trim());
@@ -373,14 +373,14 @@ export async function prepareRegisteredSemanticBatch(root: string, phaseId: Sema
   assert.ok(Number.isSafeInteger(registration.phaseLimitMicros) && registration.phaseLimitMicros >= modelProfile.reservationMicros && registration.phaseLimitMicros <= SEMANTIC_SHARED_LIMIT);
   const codeRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   assert.equal(execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'code/desktop-pet'], { cwd: root, encoding: 'utf8' }).trim(), '', 'Commit reviewed sources before freezing');
-  assert.ok(registration.verification.path.startsWith('.local/'));
+  assert.ok(registration.verification.path.startsWith('artifacts/W0-I/'));
   assert.equal(semanticHash(await bytes(registration.verification.path)), registration.verification.sha256);
   const verification = await read(registration.verification.path);
   assert.equal(verification.status, 'passed'); assert.equal(verification.codeRef, codeRef);
   assert.equal(verification.actualNetworkCalls, 0); assert.equal(verification.credentialsRead, 0);
   assert.ok(verification.passed > 0); assert.equal(verification.failed, 0);
   for (const [path, sha] of Object.entries(verification.filePins)) assert.equal(semanticHash(await bytes(path)), sha, `Local verification changed: ${path}`);
-  const originals = await loadOriginalSemanticCases(root), verifiedPath = '.local/memory-semantic-offline-v1/originals-final';
+  const originals = await loadOriginalSemanticCases(root), verifiedPath = 'artifacts/W0-I/memory-semantic-offline-v1/originals-final';
   const originalVerification = await read(`${verifiedPath}/manifest.json`), ticketBytes = await bytes(`${verifiedPath}/ticket-inputs.json`);
   assert.equal(semanticHash(ticketBytes), originalVerification.ticketInputsSha256);
   assert.equal(originalVerification.originalCasesPassed, 9); assert.equal(originalVerification.modelCalls, 0); assert.equal(originalVerification.actualNetwork, false);
@@ -400,7 +400,7 @@ export async function prepareRegisteredSemanticBatch(root: string, phaseId: Sema
     return { id, input: actual, inputSha256: semanticInputHash(actual), inputUpperBound: format.inputUpperBound, systemSha256: semanticHash(format.system),
       body, requestBytes: Buffer.byteLength(JSON.stringify(body)), requestSha256 };
   });
-  const budgetBytes = await bytes('.local/model-evaluation/budget.json'), budget = JSON.parse(budgetBytes.toString());
+  const budgetBytes = await bytes('artifacts/W0-I/model-evaluation/budget.json'), budget = JSON.parse(budgetBytes.toString());
   assert.equal(semanticHash(budgetBytes), registration.priorBudget.ledgerSha256);
   assert.equal(budget.entries.length, registration.priorBudget.count); assert.equal(semanticHash(JSON.stringify(budget.entries)), registration.priorBudget.entriesSha256);
   assert.equal(budget.batchId, 'D09-S1-20260906-01'); assert.equal(budget.currency, 'CNY'); assert.equal(budget.limitMicros, SEMANTIC_SHARED_LIMIT); assert.equal(budget.blocked, false);
@@ -425,7 +425,7 @@ export async function prepareRegisteredSemanticBatch(root: string, phaseId: Sema
   }
   const artifactPins = { ...originals.inputPins };
   if (baseline) { Object.assign(artifactPins, baseline.pins); artifactPins[registration.pricingEvidence.path] = registration.pricingEvidence.sha256; }
-  for (const [path, sha] of Object.entries(verification.filePins)) if (path.startsWith('.local/')) artifactPins[path] = sha as string;
+  for (const [path, sha] of Object.entries(verification.filePins)) if (path.startsWith('artifacts/W0-I/')) artifactPins[path] = sha as string;
   for (const path of [...profile.protectedPaths, registrationPath, registration.verification.path, SEMANTIC_POLICY, `${verifiedPath}/manifest.json`, `${verifiedPath}/ticket-inputs.json`]) artifactPins[path] = semanticHash(await bytes(path));
   // Exclusive creation follows every read-only validation. No stage or old stopped record is overwritten.
   await mkdir(`${root}/${profile.directory}`);
@@ -439,7 +439,7 @@ export async function prepareRegisteredSemanticBatch(root: string, phaseId: Sema
     promptSha256: registration.promptSha256, inputHashes: Object.fromEntries(requests.map(item => [item.id, item.inputSha256])), sourcePins, artifactPins,
     priorBudget: { count: budget.entries.length, entriesSha256: semanticHash(JSON.stringify(budget.entries)) }, cases };
   await save('config.json', config); const checked = await loadSemanticPhase(root, false, phaseId);
-  assert.deepEqual(await bytes('.local/model-evaluation/budget.json'), budgetBytes);
+  assert.deepEqual(await bytes('artifacts/W0-I/model-evaluation/budget.json'), budgetBytes);
   const receipt = { status: 'prepared_inactive', phaseId, codeRef, configSha256: checked.configSha256, priorEntries: budget.entries.length, priorEstimatedMicros: used,
     modelCalls: 0, credentialsRead: 0, sourceRuntimePins: Object.keys(sourcePins).length, artifactPins: Object.keys(artifactPins).length, requests: requests.map(({ id, requestSha256, requestBytes, inputUpperBound }) => ({ id, requestSha256, requestBytes, inputUpperBound })) };
   await save('preparation.json', receipt); return receipt;

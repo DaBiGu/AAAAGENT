@@ -3,18 +3,21 @@ import { COMPANION_LABEL, isProductCharacter } from '../contracts/character.ts';
 import { CaptureFeedback } from './capture-feedback.mjs';
 import { WorkRecords } from './work-records.mjs';
 import { WorkCard } from './work-card.mjs';
+import { DesktopWorkbenchCard } from './workbench-card.mjs';
 import { installDisplayControls } from './display-controls.mjs';
+import { installPetWindowControls } from './pet-window-controls.mjs';
 import { toDeviceFailure, deviceFailureMessage } from '../media/capture-errors.ts';
 import { PressToTalk, validVoiceKey } from './press-to-talk.ts';
 import { DesktopChatLog } from './chat-log.ts';
 import { DesktopViewState, DesktopConnectionState, scopeEquals } from './view-state.ts';
-import { JellyfishRenderer } from './cubism-renderer.mjs';
+import { VideoPetRenderer } from './video-pet-renderer.mjs';
 import { BrowserPlaybackDriver } from '../media/browser-playback.ts';
 import { DesktopPlaybackController } from './playback-controller.ts';
 import { BrowserCaptureDriver } from '../media/browser-capture.ts';
 import { DESKTOP_BRIDGE_VERSION } from '../contracts/desktop-bridge.ts';
 const $ = id => document.getElementById(id);
-const native = (name, value) => window.webkit?.messageHandlers[name]?.postMessage(value);
+const hosted = !!window.webkit?.messageHandlers?.shell;
+const native = (name, value) => window.webkit?.messageHandlers?.[name]?.postMessage(value);
 const report = value => native('diagnostic', value);
 const connection = new DesktopConnectionState();
 const send = (value, generation = connection.generation) => {
@@ -36,8 +39,14 @@ const wake=new WakeController({
  onFinish:()=>command({type:'finish_voice'},{wakeInput:true}),
  onCancel:()=>{if(wakeRequestId){wakeRequestId=null;command({type:'cancel'},{wakeInput:true});}}
 });
-const records=new WorkRecords({get:$,action:a=>work.action(a),onClose:()=>markVisibleWork(),onSelect:id=>work.focusRecord(id)});
-const work = new WorkCard({get:$,send,open:()=>panel(true),onState:s=>records.receive(s),onRecords:origin=>records.show(origin),onToggle:()=>{markVisibleWork();restoreSelectedSource();requestedSourceFocus=true;lastUI='';renderUI();}});
+let workInputSource='generic';
+const records=new WorkRecords({get:$,action:a=>work.action(a),onClose:()=>markVisibleWork(),onSelect:id=>{workInputSource='generic';workbench.forgetBinding();work.focusRecord(id);}});
+const work = new WorkCard({get:$,send,open:()=>panel(true),onState:s=>records.receive(s),onRecords:origin=>records.show(origin),onToggle:()=>{
+ if(work.expanded){workInputSource='generic';workbench.forgetBinding();workbench.close(false);}markVisibleWork();restoreSelectedSource();requestedSourceFocus=true;lastUI='';renderUI();}});
+const workbench=new DesktopWorkbenchCard({get:$,send:action=>send({channel:'workbench_action',action}),
+ online:()=>connection.connected,openNative:command=>native('shell',command),
+ visible:()=>workInputSource==='native'&&!petWindow.collapsed&&!records.isOpen&&panelOpen&&!$('drawer').hidden&&!$('drawer').inert,
+ onOpen:()=>{workInputSource='native';work.forgetBinding();},voice:()=>$('voice').onclick()});
 let companionRoute = null;
 let inputScope = null, awaitingTranscript = false;
 let lastInputRow = null, lastWorkOpen = false, preserveReading = false, requestedSourceFocus=false,lastSourceId=null;
@@ -53,6 +62,56 @@ function applyPresentationPolicy(){
   if(presentationPolicy)report({type:'presentation-policy',modelId:policy.modelId,revision:policy.revision,enabledCount:policy.enabledIds.length,applied:applied===true});
 }
 let renderer, capturing, captureAllowed = false, voicePhase = 'idle';
+let rendererKind = 'video', rendererBooted = false, rendererSwitch = Promise.resolve();
+let initialDisplayResolve;
+const initialDisplay = hosted ? new Promise(resolve => { initialDisplayResolve=resolve; }) : Promise.resolve();
+function selectRenderer(kind) {
+  if (!['video', 'live2d'].includes(kind)) return rendererSwitch;
+  rendererKind = kind; $('model-kind').value = kind;
+  rendererSwitch = rendererSwitch.then(async () => {
+    if (renderer?.kind === rendererKind && renderer.ready) return;
+    const selected = rendererKind;
+    renderer?.dispose(); renderer = undefined; $('model').hidden = false; $('loading').hidden = false;
+    $('loading').textContent = 'AAAAGENT正在过来…';
+    $('video-controls').hidden = selected !== 'video';
+    try {
+      if (selected === 'video') renderer = new VideoPetRenderer($('model'), report);
+      else {
+        await loadCubismCore();
+        const { JellyfishRenderer } = await import('./cubism-renderer.mjs');
+        renderer = new JellyfishRenderer($('model'), report, {assetBase:'assets/local-model/'});
+      }
+      renderer.kind = selected; await renderer.load(); applyPresentationPolicy(); renderer.setFraming(display.mode);
+      renderer.setSuspended?.(petWindow.collapsed || document.hidden); $('loading').hidden = true;
+      if (selected === 'video') {
+        $('video-action').replaceChildren(...[...renderer.entries.values()].map(action => { const option = document.createElement('option'); option.value = action.id; option.textContent = action.label; return option; }));
+      }
+    } catch (error) {
+      renderer?.dispose(); renderer = undefined; $('loading').textContent = error.code === 'LIVE2D_RESOURCES_MISSING' ? error.message : '角色加载失败，请在面板中切换角色';
+      view.error = error.message; report({type:'model-error'}); panel(true); renderUI();
+    }
+  });
+  return rendererSwitch;
+}
+let cubismCoreLoad;
+function loadCubismCore() {
+  if (cubismCoreLoad) return cubismCoreLoad;
+  const loaded = window.Live2DCubismCore ? Promise.resolve() : new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/cubism/Core/live2dcubismcore.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => { cubismCoreLoad = undefined; script.remove(); reject(Object.assign(new Error('Live2D SDK 未安装，请准备有权使用的 SDK 和模型后重新构建。'), {code:'LIVE2D_RESOURCES_MISSING'})); };
+    document.head.append(script);
+  });
+  cubismCoreLoad = loaded.then(async () => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { window.Live2DCubismCore.Version.csmGetVersion(); return; }
+      catch { await new Promise(resolve => setTimeout(resolve, 10)); }
+    }
+    throw Object.assign(new Error('Live2D SDK 尚未就绪，请重新构建或切换角色。'), {code:'LIVE2D_RESOURCES_MISSING'});
+  }).catch(error => { cubismCoreLoad = undefined; throw error; });
+  return cubismCoreLoad;
+}
 let voiceRequestId = null, invitationPending = false, voiceRequestAt = 0, inputEventTiming=null;
 function timedVoiceInput(at,source,run){const previous=inputEventTiming;inputEventTiming={at,source};try{return run();}finally{inputEventTiming=previous;}}
 let introduction = null, introductionEpoch = 0, introductionFramePending = false;
@@ -86,6 +145,34 @@ const hold = new PressToTalk({
     view.error = early ? '录音尚未开始，已取消，未发送。请按住直到提示正在听。' : '按键录音已取消，未发送。'; renderUI();
   }
 });
+const petWindow = installPetWindowControls({ get: $, shell: value => native('shell', value),
+  panelOpen: () => panelOpen,
+  onPetClick: () => { renderer?.pat?.(); if (!workbench.isOpen) panel(!panelOpen); },
+  onCollapse() {
+    const focused = document.activeElement;
+    const saved = { panel: panelOpen, workbench: workbench.isOpen, records: records.isOpen,
+      recordOrigin: records.returnFocus, focusId: focused?.id,
+      selection: typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null };
+    ++panelEpoch; ++inputFocusEpoch; ++interactionFocusEpoch; ++introductionEpoch;
+    introductionFramePending = false; panelAnimation?.cancel(); panelAnimation = null; clearTimeout(panelCloseTimer);
+    // Finish only the display transition. The drawer DOM, drafts and playback stay alive.
+    $('drawer').hidden = !panelOpen;
+    workbench.close(false); records.close(false); display.cancel();
+    bindingKey = false; $('hotkey-bind').textContent = '设置按键'; focused?.blur?.();
+    return saved;
+  },
+  onRestore(saved) {
+    $('drawer').inert = !panelOpen;
+    if (saved?.workbench && panelOpen) workbench.open();
+    if (saved?.records && panelOpen) records.show(saved.recordOrigin);
+    const focused = saved?.focusId && $(saved.focusId);
+    if (focused && !focused.hidden && !focused.disabled && panelOpen) {
+      focused.focus({ preventScroll: true });
+      if (saved.selection) focused.setSelectionRange?.(...saved.selection);
+    }
+    if (panelOpen) { fitComposer(); markVisibleWork(); presentNativeWork(); scheduleIntroductionAck(); }
+  }
+});
 function hotkeyConfig(value) {
   const code = value && typeof value === 'object' ? value.code ?? null : value;
   if (!hold.configure(code)) return;
@@ -95,7 +182,7 @@ function hotkeyEvent(event) {
   const receivedAt=performance.now();
   if (event.type === 'cancel') { hold.cancel(); return; }
   if (bindingKey || composing) return;
-  if (event.type === 'down') timedVoiceInput(receivedAt,'native-hotkey',()=>hold.down(event.code,event.repeat));
+  if (event.type === 'down' && !petWindow.collapsed) timedVoiceInput(receivedAt,'native-hotkey',()=>hold.down(event.code,event.repeat));
   else if (event.type === 'up') hold.up(event.code);
 }
 $('hotkey-bind').onclick = () => { hold.cancel(); bindingKey = true; $('hotkey-bind').textContent = '请按一个键…'; $('hotkey-bind').focus(); };
@@ -122,6 +209,7 @@ function renderUI() {
   lastUI = uiKey;
   const rows = chat.rows(view.characterId).map(row => {
     const item = document.createElement('div'); item.className = `chat-row ${row.kind}`;item.dataset.rowId=String(row.id);
+    if(row.recordId){item.dataset.recordId=row.recordId;item.dataset.recordVersion=String(row.recordVersion);item.dataset.sourceScope=JSON.stringify(row.sourceScope);}
     const label = document.createElement('span'); label.className = 'chat-label';
     label.textContent = row.kind === 'user' ? `${row.sourceLabel??'你'}${row.status === 'sending' ? ' · 发送中' : row.status === 'failed' ? ' · 未送达' : ''}` : COMPANION_LABEL;
     const text = document.createElement('div'); text.textContent = row.text;
@@ -153,6 +241,7 @@ function renderUI() {
   $('voice').textContent = voicePhase === 'preparing' ? '取消准备' : voicePhase === 'recording' ? '说完了' : '开始语音';
   $('stop').hidden = (view.state === 'idle' || view.state === 'error')&&!workNotice;
   $('voice').disabled = !connection.connected || (voicePhase === 'idle' && !['idle', 'error'].includes(view.state));
+  workbench.updateInputControls();
   $('send').disabled = !connection.connected || chat.pending(view.characterId);
   $('invitation').hidden = !view.invitation; $('invitation').textContent = view.invitation?.text ?? '';
   if (panelOpen) fitComposer();
@@ -161,9 +250,9 @@ function renderUI() {
 // This presentation is never appended to chat or submitted as user/model text.
 function scheduleIntroductionAck() {
   const current = introduction, epoch = introductionEpoch;
-  if (!current || current.acknowledged || introductionFramePending || !connection.connected || !panelOpen || document.hidden) return;
+  if (!current || current.acknowledged || introductionFramePending || !connection.connected || !panelOpen || petWindow.collapsed || document.hidden) return;
   const visible = () => {
-    if (epoch !== introductionEpoch || introduction !== current || !connection.current(current.generation) || !connection.connected || !panelOpen || document.hidden) return false;
+    if (epoch !== introductionEpoch || introduction !== current || !connection.current(current.generation) || !connection.connected || !panelOpen || petWindow.collapsed || document.hidden) return false;
     const node = $('introduction');
     if (!node || !node.getClientRects().length || $('drawer').hidden) return false;
     const rect = node.getBoundingClientRect(), clip = $('conversation').getBoundingClientRect();
@@ -183,7 +272,8 @@ function scheduleIntroductionAck() {
 }
 $('conversation').addEventListener('scroll', scheduleIntroductionAck);
 function panel(open) {
-  if(open&&panelOpen&&!$('drawer').hidden){scheduleIntroductionAck();return;}
+  if(petWindow.collapsed)return;
+  if(open&&panelOpen&&!$('drawer').hidden){workbench.schedulePresentation();scheduleIntroductionAck();return;}
   const epoch = ++panelEpoch;
   panelAnimation?.cancel(); panelAnimation = null;
   clearTimeout(panelCloseTimer);
@@ -192,11 +282,11 @@ function panel(open) {
     bindingKey = false; $('hotkey-bind').textContent = '设置按键';
   }
   const drawer = $('drawer');
-  panelOpen = open; drawer.inert = !open; $('open').hidden = open;
+  panelOpen = open; drawer.inert = !open || petWindow.collapsed; $('open').hidden = open;
   $('open').setAttribute('aria-expanded', String(open));
   const animate = drawer.animate && !document.hidden && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const finishClose = () => { if (!panelOpen && epoch === panelEpoch && !drawer.hidden) { clearTimeout(panelCloseTimer); drawer.hidden = true; native('shell', { type: 'panel', open: false }); } };
-  if (open) { drawer.hidden = false; markVisibleWork(); native('shell', { type: 'panel', open: true }); }
+  if (open) { drawer.hidden = false; markVisibleWork(); workbench.schedulePresentation(); native('shell', { type: 'panel', open: true }); }
   if (animate && !drawer.hidden) {
     panelAnimation = drawer.animate(open ? [{opacity:0,transform:'translateY(6px)'},{opacity:1,transform:'translateY(0)'}] : [{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(6px)'}], {duration:open ? 200 : 180,easing:'cubic-bezier(.2,.7,.2,1)'});
     // Occluded WKWebViews can suspend animation frames. Closing must still end.
@@ -205,7 +295,7 @@ function panel(open) {
   } else if (!open) finishClose();
   introductionEpoch++; introductionFramePending = false;
   if (open) { requestAnimationFrame(() => {
-    if (panelOpen && epoch === panelEpoch && !document.hidden && document.hasFocus?.() !== false&&!records.isOpen) { fitComposer(); $('text').focus({ preventScroll: true }); }
+    if (panelOpen && !petWindow.collapsed && epoch === panelEpoch && !document.hidden && document.hasFocus?.() !== false&&!records.isOpen&&!workbench.isOpen) { fitComposer(); $('text').focus({ preventScroll: true }); }
   }); scheduleIntroductionAck(); }
 }
 function fitComposer() {
@@ -224,9 +314,16 @@ const playback = new DesktopPlaybackController(new BrowserPlaybackDriver(), scop
   if (event.type === 'started' || ['ended','stopped','error'].includes(event.type)) report({ type: 'playback-state', event: event.type, timingBasis: event.timingBasis, model: renderer?.ready ? renderer.snapshot() : null });
 });
 function stopPlayback(scope) { playback.stop(scope); }
-function restoreSelectedSource(){const source=work.state?.sourceInput;if(work.expanded&&source&&typeof source.draftId==='string'&&typeof source.text==='string'&&isProductCharacter(source.scope?.characterId)&&['original_input','legacy_saved_input'].includes(source.provenance))chat.restoreSource(source);}
-function markVisibleWork(){if(!records.isOpen&&panelOpen&&!document.hidden&&!$('drawer').hidden&&work.expanded&&!$('work-card').hidden)work.presented();}
-function displayedWorkBinding(){return work.inputBinding();}
+function restoreSelectedSource(){const source=work.state?.sourceInput;if(workInputSource==='generic'&&work.expanded&&source&&typeof source.draftId==='string'&&typeof source.text==='string'&&isProductCharacter(source.scope?.characterId)&&['original_input','legacy_saved_input'].includes(source.provenance))chat.restoreSource(source);}
+function markVisibleWork(){if(workInputSource==='generic'&&!petWindow.collapsed&&!records.isOpen&&panelOpen&&!document.hidden&&!$('drawer').hidden&&work.expanded&&!$('work-card').hidden)work.presented();}
+function displayedInputBinding(){if(workInputSource==='native'){const binding=workbench.inputBinding();return binding?{workbenchBinding:binding}:null;}
+ const binding=work.inputBinding();return binding?{workBinding:binding}:null;}
+function presentNativeWork(){
+ if(!workbench.needsPresentation()||document.hidden||petWindow.collapsed)return;
+ records.close(false);panel(true);workbench.open();
+ const card=$('workbench-draft'),content=$('workbench-content');
+ if(card&&content.contains(card))content.scrollTop=card.offsetTop-content.offsetTop;
+}
 function clearWorkSpeech(){const scope=workNotice?.scope;workNotice=null;workSpeechView.reset();if(scope)stopPlayback(scope);}
 function stopCapture(scope) {
   if (!scope || capturing && scopeEquals(capturing.scope, scope)) voicePhase = 'idle';
@@ -238,7 +335,9 @@ function command(cmd,{wakeInput=false}={}) {
   const commandEnteredAt=performance.now();
   if (!connection.connected) return;
   if(!wakeInput&&['start_voice','click_invitation','submit_text','cancel'].includes(cmd.type)){wake.pause();wakeRequestId=null;}
-  if(['start_voice','submit_text'].includes(cmd.type)){const binding=displayedWorkBinding();cmd={...cmd,...(binding?{workBinding:binding}:{})};}
+  if(['start_voice','submit_text'].includes(cmd.type)){
+    const {workBinding,workbenchBinding,...inputCommand}=cmd;cmd={...inputCommand,...(displayedInputBinding()??{})};
+  }
   if(['start_voice','click_invitation'].includes(cmd.type))voiceRequestAt=inputEventTiming?.at??commandEnteredAt;
 
   if (cmd.type === 'finish_voice' && voicePhase !== 'recording') {
@@ -254,10 +353,10 @@ function command(cmd,{wakeInput=false}={}) {
   if (['cancel', 'submit_text'].includes(cmd.type)) { voiceRequestId = null; invitationPending = false; chat.cancelVoice(view.characterId); }
   if (['start_voice', 'click_invitation'].includes(cmd.type)) { chat.failPending(view.characterId); chat.beginVoice(view.characterId, true); }
   if (cmd.type === 'submit_text' && !chat.submit(view.characterId, cmd.text)) return;
-  if (cmd.type === 'cancel') { work.forgetBinding();chat.failPending(view.characterId); $('text').value = chat.draft(view.characterId); }
+  if (cmd.type === 'cancel') { work.forgetBinding();workbench.forgetBinding();chat.failPending(view.characterId); $('text').value = chat.draft(view.characterId); }
   if (['cancel','submit_text'].includes(cmd.type)) hold.clear();
   if (['cancel','submit_text','start_voice','click_invitation'].includes(cmd.type)) {
-    clearWorkSpeech();workSpeechBlocked=false;inputFocusEpoch++;inputScope=null;awaitingTranscript=false;work.input(!!cmd.workBinding); routeFocusEpoch=++interactionFocusEpoch; companionRoute=null; void stopPlayback(); stopCapture(); renderer?.reset();
+    clearWorkSpeech();workSpeechBlocked=false;inputFocusEpoch++;inputScope=null;awaitingTranscript=false;work.input(!!(cmd.workBinding||cmd.workbenchBinding)); routeFocusEpoch=++interactionFocusEpoch; companionRoute=null; void stopPlayback(); stopCapture(); renderer?.reset();
   }
   captureAllowed = cmd.type === 'start_voice' || cmd.type === 'click_invitation';
   if (captureAllowed) { voicePhase = 'preparing'; }
@@ -277,6 +376,8 @@ function connectionChanged(value) {
   wake.disconnect();wakeRequestId=null;
   captureFeedback.stop();
   awaitingTextTurn = false;clearWorkSpeech();spokenNotices.clear();workSpeechBlocked=false;inputFocusEpoch=0;interactionFocusEpoch=0;routeFocusEpoch=0; inputScope=null;awaitingTranscript=false;work.reset(); companionRoute=null; textRequestId=null;
+  workbench.disconnect();
+  workInputSource='generic';
   presentationPolicy=null;applyPresentationPolicy();
   hold.clear(); voiceRequestId = null; invitationPending = false; chat.cancelVoice(view.characterId);
   introduction = null; introductionEpoch++; introductionFramePending = false; captureAllowed = false;
@@ -296,10 +397,13 @@ async function receive(message, generation) {
     wake.disconnect();wakeRequestId=null;
     captureFeedback.stop();
     awaitingTextTurn = false;clearWorkSpeech();spokenNotices.clear();workSpeechBlocked=false;inputFocusEpoch=0;interactionFocusEpoch=0;routeFocusEpoch=0; inputScope=null;awaitingTranscript=false;work.reset(); companionRoute=null; textRequestId=null;
+    workbench.ready();
+    workInputSource='generic';
     presentationPolicy=null;applyPresentationPolicy();
     introduction = null; introductionEpoch++; introductionFramePending = false; captureAllowed = false;
     void stopPlayback(); stopCapture(); renderer?.reset();
     backendSessionId=message.sessionId;view.setSession(message.characterId, message.sessionId);workSpeechView.setSession(message.characterId,message.sessionId);
+    chat.restoreHistory(message.characterId, message.history);
     if (message.introduction && typeof message.introduction.id === 'string' && message.introduction.id && typeof message.introduction.text === 'string' && message.introduction.text.trim()) introduction = { ...message.introduction, generation, acknowledged: false };
     $('text').value = chat.draft(view.characterId); renderUI();
     report({ type: message.channel, characterId: message.characterId, bridgeVersion: DESKTOP_BRIDGE_VERSION }); return;
@@ -309,7 +413,8 @@ async function receive(message, generation) {
   if(message.channel==='wake_error'){if(!connection.connected)return;wake.error(message);return;}
   if (message.channel === 'backend_closed') { connectionChanged({ generation, state: 'disconnected' }); return; }
   if (!connection.connected) return;
-  if(message.channel==='work_state') { if(work.receive(message.state)){markVisibleWork();if(message.state.focus==='work')restoreSelectedSource();renderUI();} return; }
+  if(message.channel==='work_state') { if(work.receive(message.state)){renderer?.workEvent?.('work',message.state);markVisibleWork();if(message.state.focus==='work')restoreSelectedSource();renderUI();} return; }
+  if(message.channel==='workbench_state'){if(workbench.receive(message.state)){renderer?.workEvent?.('workbench',message.state);presentNativeWork();}return;}
   if(message.channel==='work_speech'){
     const e=message.event;
     if(!e||!e.scope||e.scope.sessionId!==backendSessionId||!isProductCharacter(e.scope.characterId)||!Number.isSafeInteger(e.inputEpoch)||e.inputEpoch!==inputFocusEpoch||typeof e.noticeId!=='string')return;
@@ -320,7 +425,7 @@ async function receive(message, generation) {
   if(message.channel==='input_route') {
     if(!view.accepts(message.scope)||!['companion','work'].includes(message.route))return;
     chat.route(message.scope,message.route);
-    if(message.route==='work'){companionRoute=null;awaitingTextTurn=false;if(routeFocusEpoch===interactionFocusEpoch)work.routedWork();markVisibleWork();restoreSelectedSource();view.reset();renderer?.reset();}
+    if(message.route==='work'){companionRoute=null;awaitingTextTurn=false;if(workInputSource==='generic'){if(routeFocusEpoch===interactionFocusEpoch)work.routedWork();markVisibleWork();restoreSelectedSource();}view.reset();renderer?.reset();}
     else {companionRoute=message.scope;work.input();}
     renderUI(); return;
   }
@@ -343,7 +448,7 @@ async function receive(message, generation) {
     if (accepted && ['turn', 'error'].includes(e.type)) awaitingTextTurn = false;
     if (accepted && e.type === 'turn') { if (e.input.kind === 'text') chat.acknowledge(e.input.scope, true); else chat.bindVoice(e.input.scope); }
     if (accepted && e.type === 'transcript') chat.transcript(e.scope, e.text);
-    if (accepted && e.type === 'reply' && scopeEquals(companionRoute,e.reply.scope)) chat.reply(e.reply.scope, e.reply.text);
+    if (accepted && e.type === 'reply' && scopeEquals(companionRoute,e.reply.scope)) { chat.reply(e.reply.scope, e.reply.text); renderer?.presentReply?.(e.reply); }
     if (accepted && e.type === 'error') { hold.clear(); voiceRequestId = null; invitationPending = false; chat.cancelVoice(view.characterId); chat.failPending(view.characterId); $('text').value = chat.draft(view.characterId); }
     if (accepted && (e.type === 'error' || e.type === 'presentation' && e.presentation.state === 'error')) { captureFeedback.stop();void stopPlayback(); stopCapture(); renderer?.reset(); }
     if (accepted && e.type === 'turn') { if (playback.scope && !scopeEquals(playback.scope, e.input.scope)) void stopPlayback(); if (capturing && !scopeEquals(capturing.scope, e.input.scope)) stopCapture(); renderer?.reset({ preserveAttention: e.input.kind === 'voice' }); }
@@ -399,9 +504,23 @@ async function receive(message, generation) {
     send({ channel: 'rpc_error', requestId: message.requestId, ...(scope ? { scope } : {}), error: failure, message: text }, generation);
   }
 }
-window.petBridge = { receive, connectionChanged, hotkeyConfig, hotkeyEvent, displayConfig: display.receive, managementResult };
+window.petBridge = { receive, connectionChanged, hotkeyConfig, hotkeyEvent, displayConfig: config => {
+ display.receive(config); petWindow.receive(config);
+ if (['video','live2d'].includes(config.rendererKind) && config.rendererKind !== rendererKind) { rendererKind = config.rendererKind; if(rendererBooted) void selectRenderer(rendererKind); }
+ initialDisplayResolve?.(); initialDisplayResolve=undefined;
+ renderer?.setSuspended?.(petWindow.collapsed || document.hidden);
+ if (workbench.isOpen) workbench.position(); if (records.isOpen) records.position();
+},
+ managementResult,workbenchOpenResult:result=>workbench.nativeOpenResult(result) };
+window.WhaleDesktop = { express: async payload => {
+  if (renderer?.kind !== 'video' || !renderer.ready) throw Error('请先选择视频鲸鱼');
+  return renderer.invoke(payload);
+}, snapshot: () => renderer ? {kind:renderer.kind,ready:renderer.ready,...(renderer.ready ? renderer.snapshot() : {})} : null };
+$('model-kind').onchange = () => { const kind = $('model-kind').value; if(hosted) native('shell',{type:'set_renderer',rendererKind:kind}); else void selectRenderer(kind); };
+$('video-play').onclick = () => renderer?.request?.($('video-action').value);
+$('video-reassure').onclick = () => renderer?.reassure?.();
 $('open').onclick = () => panel(true); $('close').onclick = () => panel(false); $('quit').onclick = () => { wake.disconnect();captureFeedback.stop();void stopPlayback(); stopCapture(); native('shell', { type: 'quit' }); };
-$('text').oninput = () => { clearWorkSpeech();workSpeechBlocked=true;interactionFocusEpoch++; work.input(!!displayedWorkBinding()); chat.setDraft(view.characterId, $('text').value); fitComposer(); };
+$('text').oninput = () => { clearWorkSpeech();workSpeechBlocked=true;interactionFocusEpoch++; work.input(!!displayedInputBinding()); chat.setDraft(view.characterId, $('text').value); fitComposer(); };
 $('text').oncompositionstart = () => { composing = true; };
 $('text').oncompositionend = () => { composing = false; };
 $('text').onkeydown = event => {
@@ -418,14 +537,12 @@ $('text').onfocus = () => report({ type: 'input-focus', active: document.activeE
 $('voice').onclick = () => timedVoiceInput(performance.now(),'voice-button',()=>command({ type: voicePhase !== 'idle' ? 'finish_voice' : 'start_voice' }));
 $('stop').onclick = () => command({ type: 'cancel' });
 $('invitation').onclick = () => { if (view.invitation) { const id = view.invitation.id; view.invitation = null; panel(true); command({ type: 'click_invitation', invitationId: id }); } };
-let pointer;
-$('character').onpointerdown = e => { pointer = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); };
-$('character').onpointermove = e => { if (!pointer) return; const dx = e.screenX - pointer.x, dy = e.screenY - pointer.y; if (Math.abs(dx) + Math.abs(dy) > 3 || pointer.moved) { pointer.moved = true; native('shell', { type: 'drag', dx, dy }); pointer.x = e.screenX; pointer.y = e.screenY; } };
-$('character').onpointercancel = $('character').onlostpointercapture = () => { pointer = null; };
-$('character').onpointerup = () => { if (pointer && !pointer.moved) panel(!panelOpen); pointer = null; };
-const editing = target => ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable || ['view-full', 'view-half', 'model-resize', 'management'].includes(target?.id);
+const petWindowControl = target => ['pet-collapse', 'pet-ball', 'workbench-collapse', 'work-records-collapse'].includes(target?.id);
+const editing = target => ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable || ['view-full', 'view-half', 'model-resize', 'management', 'workbench-open'].includes(target?.id) || petWindowControl(target);
 document.addEventListener('keydown', e => {
   const receivedAt=performance.now();
+  if(petWindow.collapsed)return;
+  if(workbench.isOpen){if(e.key==='Tab'){workbench.tab(e);return;}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();workbench.close();return;}}
   if(e.key==='Tab'&&records.isOpen){records.tab(e);return;}
   if(e.key==='Escape'&&records.isOpen){e.preventDefault();e.stopPropagation();records.close();return;}
   if (e.key === 'Escape' && display.cancel(e)) return;
@@ -434,19 +551,19 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { if (playback.busy || capturing || voicePhase !== 'idle' || view.scope) command({ type: 'cancel' }); else panel(false); }
 }, true);
 document.addEventListener('keyup', e => { if (hold.up(e.code)) { e.preventDefault(); e.stopPropagation(); } }, true);
-document.addEventListener('focusin', e => { if (editing(e.target)) hold.cancel(); });
-window.addEventListener('blur', () => { hold.cancel(); display.cancel(); pointer = null; });
-document.addEventListener('visibilitychange', () => { introductionEpoch++; introductionFramePending = false; if (document.hidden) { hold.cancel(); display.cancel(); pointer = null; } else scheduleIntroductionAck(); });
+document.addEventListener('focusin', e => { if (editing(e.target) && !petWindowControl(e.target)) hold.cancel(); });
+window.addEventListener('blur', () => { hold.cancel(); display.cancel(); petWindow.cancel(); });
+document.addEventListener('visibilitychange', () => { renderer?.setSuspended?.(document.hidden || petWindow.collapsed); introductionEpoch++; introductionFramePending = false; if (document.hidden) { hold.cancel(); display.cancel(); petWindow.cancel(); } else {presentNativeWork();workbench.schedulePresentation();scheduleIntroductionAck();} });
 window.addEventListener('pagehide', () => { display.cancel(); connectionChanged({ generation: connection.generation, state: 'disconnected' }); void stopPlayback(); stopCapture(); renderer?.dispose(); });
 window.addEventListener('error', e => report({ type: 'script-error', message: e.message }));
 window.addEventListener('unhandledrejection', e => report({ type: 'promise-error', message: String(e.reason) }));
 renderUI(); native('shell', { type: 'ready' });
 let frame = 0, lastRender = 0;
-try {
-  renderer = new JellyfishRenderer($('model'), report); await renderer.load(); applyPresentationPolicy(); renderer.setFraming(display.mode); $('loading').hidden = true;
-  function animate(at) { requestAnimationFrame(animate); if (at - lastRender > 32) { if (view.expireInvitation(Date.now())) renderUI(); const shown=workSpeechView.state==='speaking'?workSpeechView:view;renderer.updateView(shown,voicePhase==='preparing'?'listening':shown.state,work.focused&&shown===view); lastRender = at; frame++; } }
+{
+  await initialDisplay; rendererBooted = true; await selectRenderer(rendererKind);
+  function animate(at) { requestAnimationFrame(animate); if (at - lastRender > 32) { if (view.expireInvitation(Date.now())) renderUI(); const shown=workSpeechView.state==='speaking'?workSpeechView:view;if (!petWindow.collapsed && !document.hidden) renderer?.updateView(shown,voicePhase==='preparing'?'listening':shown.state,(work.focused||workInputSource==='native')&&shown===view); lastRender = at; frame++; } }
   requestAnimationFrame(animate);
   // Bounded telemetry of model parameters only, never transcript/audio/frame contents.
   let lastTrace = 0;
-  setInterval(() => { if (playback.busy && performance.now() - lastTrace > 700) { lastTrace = performance.now(); report({ type: 'speaking-parameters', ...renderer.snapshot() }); } }, 500);
-} catch (error) { $('loading').textContent = '模型加载失败'; view.error = error.message; report({ type: 'model-error', message: error.message, stack: error.stack }); panel(true); renderUI(); }
+  setInterval(() => { if (playback.busy && renderer?.ready && performance.now() - lastTrace > 700) { lastTrace = performance.now(); report({ type: 'speaking-parameters', ...renderer.snapshot() }); } }, 500);
+}

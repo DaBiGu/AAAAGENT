@@ -67,7 +67,7 @@ test('actual memory page reads SQLite, previews now without mutation, then perfo
  const before=f.store.revision(scope());assert.equal(f.calls(),0);assert.equal(f.store.revision(scope()),before);
  await page.locator('#memory-policy').click();await page.locator('#md-preview-query').fill('红茶');await page.locator('#md-preview-horizon').click();await page.locator('#md-preview-horizon').press('Home');await page.locator('#md-preview-horizon').press('Enter');
  await page.locator('#md-preview-run').click();await page.locator('#md-preview-result').waitFor();assert.equal(f.store.revision(scope()),before);assert.equal(f.calls(),0);
- const output=resolve('../../.local/memory-dynamics-01');await mkdir(output,{recursive:true});await page.screenshot({path:resolve(output,'actual-sqlite-preview.png'),fullPage:true});
+ const output=resolve('../../artifacts/W0-I/memory-dynamics-01');await mkdir(output,{recursive:true});await page.screenshot({path:resolve(output,'actual-sqlite-preview.png'),fullPage:true});
  await page.locator('#memory-dynamics').click();
  // Browser DOM drives the same HTTP and strict model adapter as the first test.
  await page.locator('[data-md-record="tea"]').click();

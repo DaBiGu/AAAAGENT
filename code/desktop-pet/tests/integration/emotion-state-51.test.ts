@@ -14,7 +14,7 @@ import { TurnController } from '../../core/turn-controller.js';
 
 const NOW='2026-09-19T06:00:00Z';
 function fixture(t:TestContext){
- const base=fileURLToPath(new URL('../../../../../.local/emotion-state-51/tmp/',import.meta.url));mkdirSync(base,{recursive:true});const directory=mkdtempSync(join(base,'case-'));
+ const base=fileURLToPath(new URL('../../../../../artifacts/W0-I/emotion-state-51/tmp/',import.meta.url));mkdirSync(base,{recursive:true});const directory=mkdtempSync(join(base,'case-'));
  const options={filename:resolve(directory,'synthetic.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=>NOW};
  const stores:SqliteMemoryStore[]=[];const open=()=>{const store=new SqliteMemoryStore(options);stores.push(store);return store;};
  t.after(()=>{for(const s of stores)s.close();rmSync(directory,{recursive:true,force:true});});return {open};

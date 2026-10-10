@@ -41,7 +41,7 @@ export function createEmotionView(client,render,host){
  }
  function history(m){return el('details',{class:'card emotion-message',id:'emotion-message-'+encodeURIComponent(key(m)),'data-emotion-message':m.message.id,'data-message-version':m.message.version},
   el('summary',{},m.role==='user'?'用户消息':'桌宠回复',' · ',time(m.recordedAt)),
-
+  
   el('section',{class:'emotion-original','data-emotion-frozen':'true'},el('h3',{},'本轮观察'),m.observations.length?el('div',{class:'emotion-grid'},m.observations.map(o=>el('section',{},el('h4',{},subjects[o.subject]),observationView(o)))):el('p',{class:'subtle'},'当时没有可用观察。'),
    el('h3',{},'消息保存时的状态快照'),el('div',{class:'emotion-grid'},sustainedView(m.background.user,'当时的用户情绪'),sustainedView(m.background.companion,'当时的桌宠心情'))),
   el('details',{},el('summary',{},'查看记录详情'),definition([['消息',ref(m.message)],['会话',m.scope.sessionId],['轮次',m.scope.turnId]])));}

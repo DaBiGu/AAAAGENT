@@ -1,9 +1,10 @@
-import { WorkPlanFailure, type WorkPlanFailureCode } from '../providers/work-plan.js';
+import { explicitWorkExecutor, WorkPlanFailure, type WorkPlanFailureCode } from '../providers/work-plan.js';
 import { isClearUnknownReminderCommand } from './local-reminder-intent.js';
 import { sameScope } from '../core/turn-controller.js';
 import type { WorkStatusNotice } from '../core/work-speech.js';
 import type { TurnScope } from '../contracts/index.js';
-import type { DesktopWorkAction, DesktopWorkPort, DesktopWorkState, WorkDraft, WorkIntent, WorkStage, WorkPlan, WorkPlanCatalog, WorkInputBinding, PendingWorkContext, WorkContinuationIntent, WorkConversationMessage } from '../contracts/desktop-work.js';
+import type { WorkbenchVoiceBinding } from '../contracts/workbench.js';
+import type { DesktopWorkAction, DesktopWorkPort, DesktopWorkState, WorkDraft, WorkIntent, WorkStage, WorkPlan, WorkPlanCatalog, WorkInputBinding, PendingWorkContext, WorkContinuationIntent, WorkConversationMessage, WorkTaskReference, WorkPlanContinuity } from '../contracts/desktop-work.js';
 import type { ForwardRequest } from '../contracts/harness.js';
 import type { ProjectIndexPort } from '../contracts/projects.js';
 import { ManagementError } from '../contracts/management.js';
@@ -14,9 +15,18 @@ interface Options {
   receipts: ForwardReceipts;
   forwarding: Pick<HarnessForwarding, 'records' | 'record' | 'observationPage' | 'pendingCount' | 'targets' | 'prepare' | 'confirm' | 'refreshReceipt'> & Partial<Pick<HarnessForwarding,'projectChoices'|'prepareDraft'|'openNative'>>;
   projects: ProjectIndexPort;
-  classify(scope: TurnScope, text: string, signal: AbortSignal): Promise<WorkIntent>;
+  classify(scope: TurnScope, text: string, signal: AbortSignal, previousTask?: WorkTaskReference): Promise<WorkIntent>;
   interpret?(scope: TurnScope, text: string, context: PendingWorkContext, signal: AbortSignal): Promise<WorkContinuationIntent>;
   plan?(scope:TurnScope,text:string,catalog:WorkPlanCatalog,signal:AbortSignal):Promise<WorkPlan>;
+  /** Explicitly selected T3 work stays in the desktop workbench channel. */
+  workbenchSelection?(scope?: TurnScope): { readonly revision: number; readonly projectId: string | null;
+    readonly taskId: string | null };
+  workbenchRoute?(scope: TurnScope, text: string, signal: AbortSignal,
+    assertCurrent: () => void, selected: { readonly revision: number; readonly projectId: string | null;
+      readonly taskId: string | null }): Promise<boolean>;
+  workbenchBeginInput?(scope: TurnScope, binding?: WorkbenchVoiceBinding): void;
+  workbenchContinuation?(scope: TurnScope, text: string, signal: AbortSignal, assertCurrent: () => void,
+    interpret?: Options['interpret']): Promise<'unbound' | 'companion' | 'handled'>;
   emit(state: DesktopWorkState): void;
   notify?(notice: WorkStatusNotice): void;
 }
@@ -87,16 +97,18 @@ export class DesktopWork implements DesktopWorkPort {
   private async planDraft(d:StoredWorkDraft,text:string,signal:AbortSignal,epoch:number, dialogueScope:TurnScope=d.scope, expectedExecutor?:'codex'|'harness'):Promise<void> {
     if(!this.options.plan||!this.options.forwarding.prepareDraft)throw Error('Automatic planning unavailable');
     this.choices=await this.loadChoices();
-    const full=this.choices,input=text.normalize('NFKC').toLowerCase();
+    const continuity=this.continuity(d,text);
+    const full=this.choices;
+    const inputs=[text,continuity.originalRequest,[continuity.previousTask?.originalRequest??'',continuity.previousTask?.arrangement?.projectName??'',continuity.previousTask?.arrangement?.targetName??''].join('\n')].map(v=>v.normalize('NFKC').toLowerCase());
     // Retrieval narrows metadata only; it does not select an executor or authorize a send.
     const rank=(name:string,path:string)=>{const n=name.toLowerCase(),leaf=path.split('/').at(-1)?.toLowerCase()??'';
-      return (leaf.length>1&&input.includes(leaf)?100:0)+(n.length>1&&input.includes(n)?50:0)+[...new Set(n)].filter(ch=>input.includes(ch)).length;};
+      return inputs.reduce((score,input,i)=>score+(3-i)*((leaf.length>1&&input.includes(leaf)?100:0)+(n.length>1&&input.includes(n)?50:0)+[...new Set(n)].filter(ch=>input.includes(ch)).length),0);};
     const targets=full.targets.map((t,i)=>({t,i,score:rank(t.title,t.projectPath)})).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,60).map(x=>x.t);
     const roots=new Set(targets.map(t=>t.projectPath));
     const projects=full.projects.map((p,i)=>({p,i,score:rank(p.name,p.detailRef.rootPath)+(roots.has(p.detailRef.rootPath)?10:0)}))
       .sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,80).map(x=>x.p);
     let plan:WorkPlan;
-    try{plan=await this.options.plan(d.scope,text,{targets,projects},signal);}
+    try{plan=await this.options.plan(d.scope,text,{targets,projects,continuity},signal);}
     catch(error) {signal.throwIfAborted();throw new PlanningFailure('plan',undefined,error instanceof WorkPlanFailure?error.code:undefined);}
     signal.throwIfAborted();if(epoch!==this.epoch||this.closed)throw Error('Plan became stale');
     if(plan.kind==='clarify'){
@@ -141,10 +153,13 @@ export class DesktopWork implements DesktopWorkPort {
     this.stage=d?.status==='prepared'?'confirming':d?.status==='open'?(d.question?'clarifying':'selecting'):'idle';
     this.publish();
   }
-  beginInput(scope: TurnScope, binding?: WorkInputBinding): void {
+  beginInput(scope: TurnScope, binding?: WorkInputBinding, workbenchBinding?: WorkbenchVoiceBinding): void {
+    this.options.workbenchBeginInput?.(scope, workbenchBinding);
+    if (workbenchBinding) { this.boundInput = { scope, authorized: false, invalid: false }; return; }
     this.localInput={scope:{...scope},epoch:this.epoch,records:this.options.forwarding.records().filter(r=>r.confirmedAt&&r.phase==='unknown'&&!r.reminderCleared).map(r=>({id:r.id,expectedVersion:r.version}))};
     const draft=this.draft() ?? (this.focusId?this.options.receipts.draftForOperation(this.focusId):undefined);
-    if(!draft || !['open','prepared'].includes(draft.status)) {this.boundInput={scope,authorized:false,invalid:!!binding};return;}
+    // A restart changes sessionId; only an exact presented binding may restore that old card.
+    if(!draft || draft.scope.characterId!==scope.characterId || (!this.sameSession(draft.scope,scope)&&!binding) || !['open','prepared'].includes(draft.status)) {this.boundInput={scope,authorized:false,invalid:!!binding};return;}
     const request=draft.operationId?this.options.forwarding.record(draft.operationId):undefined;
     const valid=!!binding && binding.draftId===draft.id && binding.draftVersion===draft.version &&
       (draft.status==='prepared' ? !!request && request.phase==='awaiting_confirmation' && !request.confirmedAt && binding.requestId===request.id && binding.requestVersion===request.version
@@ -163,15 +178,69 @@ export class DesktopWork implements DesktopWorkPort {
   private speakArrangement(scope:TurnScope,request:ForwardRequest): void {
     const brief=request.plan?.spokenSummary ?? (request.text.length<=500?request.text:undefined);
     const label=request.executor==='harness'?'DeepSeek Harness':'Codex';
-    const text=brief?'安排给'+label+(request.project?'，项目是'+request.project.name:'')+(request.target?.title?'，任务是'+request.target.title:'')+'：'+brief+'。你可以说确认，或者继续修改。':'任务正文较长，可以说重新整理，让我先整理成清楚的语音安排。';
+    const text=brief?'准备交给'+label+(request.project?'，项目是'+request.project.name:'')+(request.target?.title?'，任务是'+request.target.title:'')+'：'+brief+'。你可以说确认，或者继续修改。':'任务正文较长，可以说重新整理，让我先整理成清楚的语音安排。';
     const binding=brief?this.binding():undefined;
     this.options.notify?.({id:request.id+':'+scope.turnId,taskId:request.id,kind:'arrangement',executor:request.executor??'codex',spokenText:text,...(binding?{workBinding:binding}:{})});
   }
+  private sameSession(a:TurnScope,b:TurnScope):boolean { return a.characterId===b.characterId&&a.sessionId===b.sessionId; }
+  private reference(d:StoredWorkDraft,request?:ForwardRequest):WorkTaskReference {
+    return {originalRequest:d.originalText??d.text,currentRequest:request?.text??d.text,
+      ...(request?{arrangement:{executor:request.executor??'codex',title:request.plan?.title??'',...(request.project?{projectName:request.project.name}:{}),...(request.target?.title?{targetName:request.target.title}:{})}}:{})};
+  }
+  private previousTask(d:StoredWorkDraft):WorkTaskReference|undefined {
+    // Legacy drafts have no pinned predecessor: read only the closest earlier confirmed draft.
+    if(d.previousDraftId===null)return;
+    let previous:StoredWorkDraft|undefined;
+    try {previous=d.previousDraftId?this.options.receipts.draft(d.previousDraftId):this.options.receipts.previousConfirmedDraft(d.scope,d.id);}catch{return;}
+    if(!previous||previous.id===d.id||previous.status!=='confirmed'||!this.sameSession(previous.scope,d.scope)||!previous.operationId)return;
+    try {
+      const request=this.options.forwarding.record(previous.operationId);
+      return request?.confirmedAt?this.reference(previous,request):undefined;
+    }catch{return;}
+  }
+  private continuity(d:StoredWorkDraft,currentRequest:string,request?:ForwardRequest):WorkPlanContinuity {
+    const previousTask=this.previousTask(d);
+    return {...this.reference(d,request),currentRequest,
+      conversation:(d.conversation??[]).filter(m=>m.scope.characterId===d.scope.characterId).slice(-8).map(({role,text})=>({role,text})),
+      ...(previousTask?{previousTask}:{})};
+  }
   private context(snapshot:WorkInputSnapshot):PendingWorkContext {
     const d=snapshot.draft!,request=snapshot.request;
-    return {stage:d.status==='prepared'?'confirming':'clarifying',originalRequest:d.originalText??d.text,currentRequest:request?.text??d.text,
-      ...(d.question?{question:d.question}:{}),conversation:(d.conversation??[]).slice(-8).map(({role,text})=>({role,text})),
-      ...(request?{arrangement:{executor:request.executor??'codex',title:request.plan?.title??'',...(request.project?{projectName:request.project.name}:{}),...(request.target?.title?{targetName:request.target.title}:{})}}:{})};
+    return {stage:d.status==='prepared'?'confirming':'clarifying',...this.continuity(d,request?.text??d.text,request),...(d.question?{question:d.question}:{})};
+  }
+  private canonicalReference(d:StoredWorkDraft,current:ForwardRequest):WorkTaskReference|undefined {
+    if(d.previousDraftId===null)return;
+    try {
+      const previous=d.previousDraftId?this.options.receipts.draft(d.previousDraftId):this.options.receipts.previousConfirmedDraft(d.scope,d.id);
+      if(!previous?.operationId||previous.status!=='confirmed'||!this.sameSession(previous.scope,d.scope))return;
+      const request=this.options.forwarding.record(previous.operationId);
+      if(!request.confirmedAt||request.project?.id!==current.project?.id||request.project?.version!==current.project?.version||request.target?.threadId!==current.target?.threadId||(request.executor??'codex')!==(current.executor??'codex'))return;
+      return this.reference(previous,request);
+    }catch{return;}
+  }
+  private canonicalText(task:NonNullable<StoredWorkDraft['canonicalTask']>):string {
+    // A versioned base and ordered amendments express replacement, not simultaneous conflicting commands.
+    const text='这是来自桌宠的一项任务要求。以下保留用户对桌宠所说的原话；直接对桌宠说的话中“你”指桌宠。若用户明确要求转交给执行方一段逐字引文，则按该引文所指的受话者解释。请按顺序应用后续修正；修正只替换冲突的要求，未修改的最终目的和限制保持。不要将旧要求与其修正当作多项任务分别执行。\n原始要求：\n'+task.baseText+
+      (task.priorConversation?.length?'\n同卡已有问答（保留用户已作出的补充，并用问题解释短答；助手提问不构成新要求或执行授权）：\n'+task.priorConversation.map(m=>(m.role==='user'?'用户：':'桌宠：')+m.text).join('\n'):'')+
+      task.revisions.map((r,i)=>'\n后续修正 '+(i+1)+'：\n'+r.text).join('')+
+      (task.previousTask?'\n指代参考（同一目标的较早任务，仅在当前要求引用它时使用；不是新增任务或执行授权，当前明确修正优先）：\n'+'相关任务原话：'+task.previousTask.originalRequest+(task.previousTask.currentRequest!==task.previousTask.originalRequest?'\n相关任务内容：'+task.previousTask.currentRequest:'')+(task.previousTask.arrangement?'\n原安排：'+(task.previousTask.arrangement.executor==='codex'?'Codex':'DeepSeek Harness')+'；'+task.previousTask.arrangement.title+(task.previousTask.arrangement.projectName?'；项目：'+task.previousTask.arrangement.projectName:'')+(task.previousTask.arrangement.targetName?'；任务：'+task.previousTask.arrangement.targetName:''):''):'');
+    if(text.length>20000||text.includes('\0'))invalid('任务要求与补充过长，原话已保留，尚未生成或发送新卡。');
+    return text;
+  }
+  private async prepareCanonical(d:StoredWorkDraft,scope:TurnScope,signal:AbortSignal,epoch:number):Promise<void> {
+    const task=d.canonicalTask!;
+    if(!this.options.forwarding.prepareDraft)throw Error('Canonical planning unavailable');
+    if(task.baseScope.characterId!==d.scope.characterId||task.revisions.some(r=>r.scope.characterId!==d.scope.characterId))invalid();
+    const text=this.canonicalText(task),{executor,target,project}=task.routing;
+    const choices=await this.loadChoices();signal.throwIfAborted();if(this.closed||epoch!==this.epoch)throw Error('Canonical card became stale');
+    if(executor!=='harness'&&(!target||!choices.targets.some(t=>t.threadId===target.threadId&&(!project||t.projectPath===project.detailRef.rootPath))))invalid('原任务目标已不在当前目录中，请重新选择目标。');
+    if(project&&!choices.projects.some(p=>p.id===project.id&&p.version===project.version))invalid('原任务项目版本已变化，请重新选择项目。');
+    this.choices=choices;
+    const brief='原要求：'+task.baseText+(task.priorConversation??[]).filter(m=>m.role==='user').map(m=>'；此前补充：'+m.text).join('')+task.revisions.map(r=>'；补充：'+r.text).join('')+(task.previousTask?'；指代参考：'+task.previousTask.originalRequest:'');
+    const request=await this.options.forwarding.prepareDraft({text,executor:executor??'codex',...(target?{target:{hostId:target.hostId,threadId:target.threadId}}:{}),...(project?{projectId:project.id,projectVersion:project.version}:{}),
+      plan:{title:task.title,reason:'沿用本任务已核验的目标，保留原始要求并按顺序应用用户修正。',...(brief.length<=500?{spokenSummary:brief}:{})}},d.id,d.version);
+    signal.throwIfAborted();if(this.closed||epoch!==this.epoch)throw Error('Canonical card became stale');
+    this.focusId=request.id;this.stage='confirming';this.publish();this.speakArrangement(scope,request);
   }
   private async continueInput(scope:TurnScope,text:string,signal:AbortSignal,epoch:number,snapshot:WorkInputSnapshot):Promise<'companion'|'handled'|'new_work'> {
     const d=snapshot.draft!;
@@ -209,7 +278,24 @@ export class DesktopWork implements DesktopWorkPort {
       this.stage=d.status==='prepared'?'confirming':'clarifying';this.publish();this.speakQuestion(scope,intent.question);return 'handled';
     }
     if(intent.kind!=='supplement')throw Error('Unsupported task continuation');
-    let next=this.options.receipts.mutateDraft(d.id,d.version,row=>{(row.conversation??=[]).push({role:'user',text,scope});});
+    const literalExecutor=explicitWorkExecutor(text);
+    const unchangedRouting=intent.routing==='unchanged'&&(!literalExecutor||literalExecutor===(snapshot.request?.executor??'codex'));
+    // Only a currently presented complete card permits this path. Unknown/legacy classification cannot opt in.
+    if((d.status==='prepared'&&snapshot.authorized&&snapshot.request&&unchangedRouting&&d.originalText!==undefined) || retry&&d.canonicalTask){
+      let next=d;
+      if(!retry){
+        const request=snapshot.request!;
+        const previousTask=this.canonicalReference(d,request);
+        const canonical=d.canonicalTask??{baseText:d.originalText!,baseScope:{...d.scope},revisions:[],priorConversation:(d.conversation??[]).filter(m=>m.scope.characterId===d.scope.characterId).map(({role,text})=>({role,text})),...(previousTask?{previousTask}:{}),routing:{executor:request.executor??'codex',...(request.target?{target:request.target}:{}),...(request.project?{project:request.project}:{})},title:request.plan?.title??'任务修正'};
+        const updated={...canonical,revisions:[...canonical.revisions,{role:'user' as const,text,scope:{...scope}}]};
+        this.canonicalText(updated); // Fail before replacing the currently valid card when the source cannot fit.
+        next=this.options.receipts.mutateDraft(d.id,d.version,row=>{row.canonicalTask=updated;(row.conversation??=[]).push({role:'user',text,scope});});
+      }
+      if(next.status==='prepared')next=this.options.receipts.reopenDraft(next.id,next.version,next.text);
+      this.focusId=undefined;this.stage='classifying';this.publish();
+      await this.prepareCanonical(next,scope,signal,epoch);current();return 'handled';
+    }
+    let next=this.options.receipts.mutateDraft(d.id,d.version,row=>{delete row.canonicalTask;(row.conversation??=[]).push({role:'user',text,scope});});
     if(next.status==='prepared')next=this.options.receipts.reopenDraft(next.id,next.version,intent.text);
     else next=this.options.receipts.mutateDraft(next.id,next.version,row=>{row.text=intent.text;delete row.question;});
     this.focusId=undefined;this.stage='classifying';this.publish();
@@ -227,7 +313,14 @@ export class DesktopWork implements DesktopWorkPort {
   }
   private async routeInput(scope: TurnScope, text: string, signal: AbortSignal): Promise<'companion' | 'handled'> {
     const epoch = this.epoch, combined = AbortSignal.any([signal, this.shutdown.signal]);
+    const selectedWorkbench = this.options.workbenchSelection?.(scope);
     if(!text.trim())throw new ManagementError('invalid_request','没有听清任务内容，请再说一次。');
+    const continuation = !this.boundInput?.authorized && !this.boundInput?.invalid ? await this.options.workbenchContinuation?.(scope, text, combined,
+      () => { combined.throwIfAborted(); if (this.closed || epoch !== this.epoch) throw Error('Input routing became stale'); },
+      this.options.interpret) : undefined;
+    if (continuation && continuation !== 'unbound') {
+      combined.throwIfAborted(); this.focus = 'companion'; this.stage = 'idle'; this.publish(); return continuation;
+    }
     if(isClearUnknownReminderCommand(text)) {
       combined.throwIfAborted();if(this.closed || epoch!==this.epoch)throw Error('Local control became stale');
       const local=this.localInput;
@@ -238,6 +331,9 @@ export class DesktopWork implements DesktopWorkPort {
       this.options.notify?.({id:scope.turnId+':clear-reminders',kind:'local_control',executor:'codex',spokenText:this.reminderFeedback??'提醒操作未完成，请刷新后重试。'});
       return 'handled';
     }
+    const previousDraft=this.options.receipts.previousConfirmedDraft(scope);
+    const previousRequest=previousDraft?.operationId?this.options.forwarding.record(previousDraft.operationId):undefined;
+    const previousTask=previousDraft&&previousRequest?.confirmedAt?this.reference(previousDraft,previousRequest):undefined;
     let intent: WorkIntent;let routingFailed=false;
     const snapshot=this.boundInput&&sameScope(this.boundInput.scope,scope)?this.boundInput:undefined;
     if(snapshot?.invalid){this.focus='work';this.detail='任务安排已变化，请先核对新的安排。';this.publish();this.speakQuestion(scope,this.detail);return 'handled';}
@@ -248,16 +344,24 @@ export class DesktopWork implements DesktopWorkPort {
         this.stage=this.draft()?.status==='prepared'?'confirming':'clarifying';this.publish();this.speakQuestion(scope,this.detail);return 'handled';}
     } else intent={kind:'companion'};
     this.stage = 'classifying'; this.publish();
-    try { if(!(snapshot?.draft && this.options.interpret))intent = await this.options.classify(scope, text, combined); }
+    try { if(!(snapshot?.draft && this.options.interpret))intent = await this.options.classify(scope, text, combined, previousTask); }
     catch { combined.throwIfAborted();routingFailed=true; intent = { kind: 'clarify', question: '这次请求暂时没能整理，原话已保留，可以重新整理或继续聊天。' }; }
     combined.throwIfAborted();
     if (this.closed || epoch !== this.epoch) throw new Error('Input routing became stale');
     if (intent.kind === 'companion') { this.focus = 'companion'; this.stage = 'idle'; this.publish(); return 'companion'; }
+    if (selectedWorkbench && this.options.workbenchRoute && await this.options.workbenchRoute(scope, text, combined,
+      () => { combined.throwIfAborted(); if (this.closed || epoch !== this.epoch) throw Error('Input routing became stale'); },
+      selectedWorkbench)) {
+      combined.throwIfAborted();
+      if (this.closed || epoch !== this.epoch) throw Error('Input routing became stale');
+      this.focus = 'companion'; this.stage = 'idle'; this.publish();
+      return 'handled';
+    }
     let choices: Pick<WorkDraft, 'projects' | 'targets'>;
     try { choices = await this.loadChoices(); }
     catch { choices = { projects: [], targets: [] }; this.detail = '暂时无法列出已有任务；没有发送，可以稍后刷新。'; }
     combined.throwIfAborted(); if (epoch !== this.epoch) throw new Error('Input routing became stale');
-    const row = this.options.receipts.createDraft(scope, text, intent.question);
+    const row = this.options.receipts.createDraft(scope, text, intent.question, previousTask?previousDraft!.id:null);
     this.draftId = row.id; this.focusId = undefined; this.choices = choices; this.focus = 'work';
     this.stage=routingFailed?'failed':intent.kind==='clarify'?'clarifying':'classifying';this.publish();
     if(intent.kind==='clarify'&&intent.question)this.speakQuestion(scope,intent.question);

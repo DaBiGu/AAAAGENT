@@ -145,11 +145,14 @@ final class ManagementPageLauncher {
     private let timeout: TimeInterval
     init(timeout: TimeInterval = 5) { self.timeout = timeout }
     @discardableResult
-    func open(desktopRoot: URL, node: String, completion: @escaping (Bool) -> Void) -> Bool {
+    func open(desktopRoot: URL, node: String, workbench: [String:Any]? = nil, completion: @escaping (Bool) -> Void) -> Bool {
         guard process == nil else { return false }
         let child = Process()
         child.executableURL = URL(fileURLWithPath: node)
-        child.arguments = [desktopRoot.deletingLastPathComponent().appendingPathComponent("tools/start-management.mjs").path]
+        child.arguments = [desktopRoot.deletingLastPathComponent().appendingPathComponent(workbench == nil ? "tools/start-management.mjs" : "tools/start-workbench.mjs").path]
+        if let workbench, let encoded = try? JSONSerialization.data(withJSONObject:workbench), let text = String(data:encoded,encoding:.utf8) {
+            child.arguments?.append(text)
+        }
         child.currentDirectoryURL = desktopRoot.deletingLastPathComponent()
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = FileHandle.nullDevice; child.standardError = FileHandle.nullDevice
@@ -190,40 +193,100 @@ final class PetPanel: NSPanel {
 }
 final class AssetScheme: NSObject, WKURLSchemeHandler {
     let root: URL
+    private final class Transfer {
+        let task: WKURLSchemeTask
+        // File state is only touched on the serial I/O queue.
+        var handle: FileHandle?
+        var remaining: UInt64 = 0
+        init(_ task: WKURLSchemeTask) { self.task = task }
+        func close() { try? handle?.close(); handle = nil }
+    }
+    private let io = DispatchQueue(label:"aaaagent.pet-assets", qos:.userInitiated)
+    // Membership and all WK callbacks are confined to the main queue.
+    private var transfers: [ObjectIdentifier: Transfer] = [:]
     init(root: URL) { self.root = root.resolvingSymlinksInPath() }
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
-        do {
-            guard let url = task.request.url, url.host == "app" else { throw URLError(.badURL) }
-            let path = url.path == "/" ? "index.html" : String(url.path.dropFirst())
-            let file = root.appendingPathComponent(path).resolvingSymlinksInPath()
-            guard file.path.hasPrefix(root.path + "/") else { throw URLError(.noPermissionsToReadFile) }
-            let data = try Data(contentsOf: file)
-            let mime: String
-            switch file.pathExtension {
-            case "js", "mjs": mime = "text/javascript"
-            case "json": mime = "application/json"
-            case "css": mime = "text/css"
-            case "html": mime = "text/html"
-            case "wasm": mime = "application/wasm"
-            default: mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let id = ObjectIdentifier(task as AnyObject), transfer = Transfer(task)
+        let request = task.request
+        transfers[id] = transfer
+        io.async {
+            do {
+                guard let url = request.url, ["GET", "HEAD"].contains(request.httpMethod ?? "GET")
+                else { throw URLError(.unsupportedURL) }
+                let plan = try PetAssetResponse.prepare(root:self.root, url:url, range:request.value(forHTTPHeaderField:"Range"))
+                guard let response = HTTPURLResponse(url:url, statusCode:plan.status, httpVersion:"HTTP/1.1", headerFields:plan.headers)
+                else { throw URLError(.badServerResponse) }
+                transfer.remaining = request.httpMethod == "HEAD" ? 0 : plan.length
+                if transfer.remaining > 0 {
+                    transfer.handle = try FileHandle(forReadingFrom:plan.file)
+                    try transfer.handle?.seek(toOffset:plan.offset)
+                }
+                DispatchQueue.main.async {
+                    guard self.transfers[id] === transfer else { return }
+                    task.didReceive(response)
+                    self.readNext(id, transfer)
+                }
+            } catch {
+                transfer.close()
+                DispatchQueue.main.async { self.fail(id, transfer, error) }
             }
-            task.didReceive(URLResponse(url: url, mimeType: mime, expectedContentLength: data.count, textEncodingName: nil))
-            task.didReceive(data); task.didFinish()
-        } catch { task.didFailWithError(error) }
+        }
     }
-    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
+    private func readNext(_ id: ObjectIdentifier, _ transfer: Transfer) {
+        guard transfers[id] === transfer else { return }
+        io.async {
+            do {
+                let count = Int(min(transfer.remaining, 64 * 1024))
+                let data: Data
+                if count == 0 { data = Data() }
+                else {
+                    guard let handle = transfer.handle else { throw URLError(.cannotOpenFile) }
+                    data = try handle.read(upToCount:count) ?? Data()
+                }
+                guard count == 0 || !data.isEmpty else { throw URLError(.cannotDecodeRawData) }
+                transfer.remaining -= UInt64(data.count)
+                let finished = transfer.remaining == 0
+                if finished { transfer.close() }
+                DispatchQueue.main.async {
+                    guard self.transfers[id] === transfer else { return }
+                    if !data.isEmpty { transfer.task.didReceive(data) }
+                    guard self.transfers[id] === transfer else { return }
+                    if finished {
+                        self.transfers.removeValue(forKey:id)
+                        transfer.task.didFinish()
+                    } else { self.readNext(id, transfer) }
+                }
+            } catch {
+                transfer.close()
+                DispatchQueue.main.async { self.fail(id, transfer, error) }
+            }
+        }
+    }
+    private func fail(_ id: ObjectIdentifier, _ transfer: Transfer, _ error: Error) {
+        guard transfers[id] === transfer else { return }
+        transfers.removeValue(forKey:id)
+        transfer.task.didFailWithError(error)
+    }
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+        if let transfer = transfers.removeValue(forKey:ObjectIdentifier(task as AnyObject)) {
+            io.async { transfer.close() }
+        }
+    }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     var panel: PetPanel!
     var web: WKWebView!
     var viewportClip: NSView!
     var modelScreenFrame: CGRect?
+    var collapsedScreenFrame: CGRect?
     let connection = BackendConnection()
     let managementLauncher = ManagementPageLauncher()
     let displayPreferences = PetDisplayPreferences()
     var displayOpen = false
+    var displayCollapsed = false
     var applyingDisplay = false
     var pageReady = false
+    var rendererKind = UserDefaults.standard.string(forKey:"petDisplay.rendererKind") == "live2d" ? "live2d" : "video"
     var sourceRoot: URL!
     var voiceRequested = false
     var wakeRequested = false
@@ -242,6 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let root = option("--root") else { diagnostic("missing-root"); NSApp.terminate(nil); return }
         sourceRoot = URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL
+        if let kind = option("--renderer"), ["video", "live2d"].contains(kind) { rendererKind = kind }
         NSApp.setActivationPolicy(.accessory)
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
@@ -341,8 +405,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
                 deliver("hotkeyConfig", ["code": UserDefaults.standard.string(forKey: "voiceHotkeyCode") as Any? ?? NSNull()])
             case "set_display":
                 if let mode = value["mode"] as? String { displayPreferences.setMode(mode); applyDisplay() }
+            case "set_renderer":
+                if let kind = value["rendererKind"] as? String, ["video", "live2d"].contains(kind) {
+                    rendererKind = kind
+                    UserDefaults.standard.set(kind, forKey:"petDisplay.rendererKind")
+                    applyDisplay()
+                }
             case "resize_model":
                 if let phase = value["phase"] as? String { displayPreferences.resize(phase, width: value["width"] as? Double); applyDisplay() }
+            case "set_collapsed":
+                if let collapsed = value["collapsed"] as? Bool, collapsed != displayCollapsed {
+                    let active = displayCollapsed ? (collapsedScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
+                    displayPreferences.resize("cancel",width:nil)
+                    if let open = value["open"] as? Bool { displayOpen = open }
+                    displayCollapsed = collapsed
+                    applyDisplay(proposedModelTop:CGPoint(x:active.midX,y:active.maxY))
+                    diagnostic("pet-collapsed",["collapsed":collapsed,"width":panel.frame.width,"height":panel.frame.height])
+                }
             case "set_hotkey":
                 if let code = value["code"] as? String {
                     let pattern = "^(Arrow(Up|Down|Left|Right)|Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|20)|Space|Enter|Backspace|Delete|Home|End|PageUp|PageDown|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Backquote)$"
@@ -352,6 +431,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
                 deliver("hotkeyConfig", ["code": UserDefaults.standard.string(forKey: "voiceHotkeyCode") as Any? ?? NSNull()])
             case "reconnect":
                 if option("--backend") != nil && ["failed", "disconnected"].contains(connection.state) { startTransport() }
+            case "open_workbench":
+                var target = value
+                target.removeValue(forKey:"type")
+                let opening = managementLauncher.open(desktopRoot:sourceRoot,node:option("--node") ?? "/opt/homebrew/bin/node",workbench:target) { [weak self] ok in
+                    self?.deliver("workbenchOpenResult",["ok":ok])
+                }
+                if !opening { deliver("workbenchOpenResult",["ok":false]) }
             case "open_management":
                 managementLauncher.open(desktopRoot:sourceRoot,node:option("--node") ?? "/opt/homebrew/bin/node") { [weak self] ok in
                     self?.deliver("managementResult",["ok":ok])
@@ -361,12 +447,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             case "panel":
                 let open = value["open"] as? Bool ?? false
                 displayOpen = open; displayPreferences.resize("cancel", width: nil); applyDisplay()
-                if open { NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web) }
+                if open && !displayCollapsed { NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web) }
                 diagnostic("panel", ["open": open, "isKey": panel.isKeyWindow])
             case "focus": NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web)
             case "drag":
                 if let dx = value["dx"] as? Double, let dy = value["dy"] as? Double, dx.isFinite, dy.isFinite {
-                    let model = modelScreenFrame ?? panel.frame
+                    let model = displayCollapsed ? (collapsedScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
                     applyDisplay(proposedModelTop:CGPoint(x:model.midX+dx,y:model.maxY-dy))
                 }
             case "quit": NSApp.terminate(nil)
@@ -384,13 +470,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     func applyDisplay(proposedModelTop: CGPoint? = nil) {
         guard panel != nil, !applyingDisplay else { return }
         applyingDisplay = true; defer { applyingDisplay = false }
-        let model = modelScreenFrame ?? panel.frame
+        let model = displayCollapsed ? (collapsedScreenFrame ?? modelScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
         let anchor = proposedModelTop ?? CGPoint(x:model.midX,y:model.maxY)
         let proposedModel = CGRect(x:anchor.x-model.width/2,y:anchor.y-model.height,width:model.width,height:model.height)
         let screen = NSScreen.screens.max { $0.visibleFrame.intersection(proposedModel).area < $1.visibleFrame.intersection(proposedModel).area }
         guard let visible = screen?.visibleFrame else { return }
-        let layout = PetDisplayLayout.fit(width:displayPreferences.width,open:displayOpen,screen:visible,anchor:anchor)
-        modelScreenFrame = layout.modelFrame
+        let layout = PetDisplayLayout.fit(width:displayPreferences.width,open:displayOpen,screen:visible,anchor:anchor,collapsed:displayCollapsed)
+        if displayCollapsed { collapsedScreenFrame = layout.ballFrame }
+        else { modelScreenFrame = layout.modelFrame; collapsedScreenFrame = nil }
         // The WK viewport stays the size of its screen. Only its clipped native
         // origin changes, in the same non-animated transaction as the window.
         // Opening chat cannot resize/clear a WebGL drawing buffer between frames.
@@ -403,6 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         panel.displayIfNeeded()
         var config = layout.configuration
         config["mode"] = displayPreferences.mode; config["preferredWidth"] = displayPreferences.width
+        config["rendererKind"] = rendererKind
         deliver("displayConfig",config)
     }
     func windowDidChangeScreen(_ notification: Notification) { applyDisplay() }

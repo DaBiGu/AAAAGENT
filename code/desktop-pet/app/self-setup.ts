@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, writeFile, mkdir, readdir, lstat, realpath, open, unlink } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
+import { readFile, writeFile, mkdir, lstat, realpath, open, unlink } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ManagedCredentialStore, managedCredentialDirectory, acquireSetupLock } from '../management/credential-store.js';
 import { credentialRegistry } from '../management/credentials.js';
@@ -13,7 +13,8 @@ import { startManagementServer } from '../management/server.js';
 import { readPresentationCatalog } from '../management/presentation.js';
 import { ManagementError } from '../contracts/management.js';
 import { validateTrialConfiguration, type TrialConfiguration } from './trial-config.js';
-import { verifyTrialRuntime, trialFiles } from './trial-launcher.js';
+import { verifyTrialRuntime, preparedWorkbenchEnvironment, trialFiles } from './trial-launcher.js';
+import { collectFirstRunRuntimePins } from './runtime-pins.js';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 /** Draft metadata has no runtime fingerprint or credentials. It is never accepted by the runtime validator. */
@@ -29,11 +30,6 @@ export function firstRunDraft(projectRoot:string,credentialDirectory=managedCred
  }};
 }
 async function exists(file:string):Promise<boolean>{try{await lstat(file);return true;}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return false;throw e;}}
-async function runtimePins(root:string):Promise<Record<string,string>>{
- const files:Record<string,string>={};
- async function scan(directory:string):Promise<void>{for(const entry of await readdir(directory,{withFileTypes:true})){const file=resolve(directory,entry.name);if(entry.isSymbolicLink())throw Error('runtime_symlink');if(entry.isDirectory()){if(!['node_modules','.cache','.git'].includes(entry.name))await scan(file);}else if(entry.isFile())files[relative(root,file).split('\\').join('/')]=hash(await readFile(file));}}
- await scan(resolve(root,'code/desktop-pet/dist'));await scan(resolve(root,'code/desktop-pet/desktop'));return files;
-}
 /** Opens without a Key, voice, JSON config, app bundle or Live2D asset. No provider probes or devices. */
 export async function startFirstRunSetup(projectRoot:string,options:{credentialDirectory?:string;fetch?:typeof fetch;uiRoot?:string}={}){
  const root=await realpath(projectRoot),files=trialFiles(root),directory=dirname(files.configFile);
@@ -52,15 +48,16 @@ export async function startFirstRunSetup(projectRoot:string,options:{credentialD
   async function blockers():Promise<string[]>{
    const result:string[]=[],saved=settings.snapshot().saved,available=credentials.list();
    if(Object.values(saved.providers).some(p=>!available.some(c=>c.id===p.credentialRef&&c.provider===p.provider&&c.status==='configured')))result.push('请保存所需Key，并在每个模型模块选择同供应商的凭据。');
-   try{await readPresentationCatalog(root);}catch{result.push('启动前还需配置自己有权使用的 Live2D 模型与匹配目录；现在仍可保存Key和准备音色。');}
+   try{await readPresentationCatalog(root);}catch{result.push('启动前还需配置当前角色类型对应的授权资源与匹配目录；视频角色不要求 Live2D 模型。现在仍可保存Key和准备音色。');}
    const required=['dist/app/trial-backend.js','dist/app/trial-launcher.js','desktop/build/renderer.js','desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'];
    for(const path of required)if(!await exists(resolve(root,'code/desktop-pet',path))){result.push('启动前需要完成本机应用构建；现在仍可完成模型与音色设置。');break;}
    return result;
   }
   setup=createSelfSetup({base,settings,instanceId,mode:'first-run',credentials:managed,...(options.fetch?{fetch:options.fetch}:{}),initialization:async()=>({completed,blockers:await blockers()}),finish:async()=>{
    const missing=await blockers();if(missing.length)throw new ManagementError('invalid_request',missing.join(' '));
-   const pins=await runtimePins(root),effective=effectiveTrialConfiguration(base,settings.snapshot().saved,credentials,true);
+   const pins=await collectFirstRunRuntimePins(root),effective=effectiveTrialConfiguration(base,settings.snapshot().saved,credentials,true);
    const config=validateTrialConfiguration({...effective,sourceRevision:hash(JSON.stringify(pins)).slice(0,40),runtimeFiles:pins});await verifyTrialRuntime(config);
+   await preparedWorkbenchEnvironment(config);
    const raw=JSON.stringify(config,null,2)+'\n',activation=JSON.stringify({version:1,phaseId:config.phaseId,status:'prepared',configSha256:hash(raw)})+'\n';
    // Exclusive writes; retries may complete the exact same partially prepared pair, never replace an existing configuration.
    for(const [file,content] of [[files.configFile,raw],[files.activationFile,activation]] as const){

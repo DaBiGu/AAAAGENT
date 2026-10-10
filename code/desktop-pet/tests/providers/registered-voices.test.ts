@@ -7,13 +7,13 @@ import { syncBuiltinESMExports } from 'node:module';
 import { RegisteredVoiceStore, assertRegisteredVoiceBinding, type RegisteredVoice, type VoiceBindingKey } from '../../providers/registered-voices.js';
 import { QWEN_AUDIO_TTS_ENDPOINT, QWEN_AUDIO_TTS_PLUS_MODEL } from '../../providers/qwen-audio-tts.js';
 
-const record = (voiceId = 'dania-synthetic-001'): RegisteredVoice => ({ voiceId, label: 'example-voice 合成测试记录', provider: 'dashscope',
+const record = (voiceId = 'dania-synthetic-001'): RegisteredVoice => ({ voiceId, label: 'Dania 合成测试记录', provider: 'dashscope',
   endpoint: QWEN_AUDIO_TTS_ENDPOINT, targetModel: QWEN_AUDIO_TTS_PLUS_MODEL, credentialRef: 'dashscope-123456abcdef',
   referenceSha256: 'a'.repeat(64), createdAt: '2026-09-11T00:00:00.000Z' });
 const key = (voice = record()): VoiceBindingKey => ({ voiceId: voice.voiceId, provider: voice.provider,
   endpoint: voice.endpoint, targetModel: voice.targetModel, credentialRef: voice.credentialRef });
 async function setup(t: TestContext) {
-  const parent = resolve('../../.local/minimax-default-01/test-runs'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W2/minimax-default-01/test-runs'); await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(join(parent, 'registry-')); t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, 'registered-voices.json'); return { file, directory, store: await RegisteredVoiceStore.open(file) };
 }
@@ -103,7 +103,7 @@ test('concurrent local handles serialize and reject a stale writer; reopen can a
 test('finishing an earlier same-handle save cannot release the queue held by its pending successor', async t => {
   // Controlled in-memory filesystem schedules the second rename; real disk persistence
   // is covered above. All other operations settle as microtasks, with no timing guesses.
-  const file = resolve('../../.local/minimax-default-01/test-runs/controlled-interleave.json');
+  const file = resolve('../../artifacts/W2/minimax-default-01/test-runs/controlled-interleave.json');
   const files = new Map<string, string>(); let release!: () => void, reached!: () => void;
   const blocked = new Promise<void>(r => { release = r; }), secondAtRename = new Promise<void>(r => { reached = r; });
   const missing = () => Object.assign(new Error('controlled missing'), { code: 'ENOENT' });

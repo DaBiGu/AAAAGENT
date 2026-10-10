@@ -9,7 +9,7 @@ const digest=(file:string)=>createHash('sha256').update(readFileSync(file)).dige
 import {SqliteProjectIndex} from '../../projects/sqlite-project-index.js';
 import {PROJECT_DATABASE_ID} from '../../projects/database-identity.js';
 import {ManagementError} from '../../contracts/management.js';
-function fixture(t:TestContext){const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../.local/harness-bridge-10/tmp');mkdirSync(parent,{recursive:true});const directory=mkdtempSync(join(parent,'permissions-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));return directory;}
+function fixture(t:TestContext){const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../artifacts/W3/harness-bridge-10/tmp');mkdirSync(parent,{recursive:true});const directory=mkdtempSync(join(parent,'permissions-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));return directory;}
 
 test('new index stays 0600 under permissive process umasks before and after save/reopen',async t=>{
  const dir=fixture(t);

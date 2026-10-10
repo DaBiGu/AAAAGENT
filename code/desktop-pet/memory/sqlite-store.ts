@@ -1,3 +1,4 @@
+import { ForegroundRecentTurns } from './foreground-pagination.js';
 import { SqliteEmotionState } from './emotion-state.js';
 import {PendingMutations} from './pending-mutations.js';
 import Database from 'better-sqlite3';
@@ -346,6 +347,35 @@ export class SqliteMemoryStore implements CompanionProfilePort {
       return { characterId: scope.characterId, revision: this.revision(scope), recent: recent.reverse().map(decodeRecord).map(record => record.message!),
         summaries: summaries.map(decodeRecord), memories: purpose==='maintenance'?this.searchForMaintenance(scope,query,memoryLimit,'lexical'):this.search(scope, query, memoryLimit, 'lexical') };
     })();
+  }
+
+  /** Foreground-only lazy history. Legacy count limits remain on background readers. */
+  foregroundRecords(scope:TurnScope, protectedOnly=false, excludeRecent=false, pageSize=64):{data:ContextRecords;turns:ForegroundRecentTurns} {
+    bindScope(scope,scope.characterId); this.#open();
+    if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1000)throw new Error('invalid_page_size');
+    const revision=this.revision(scope),boundary=protectedOnly?this.pending.contextBoundary(scope.characterId):null;
+    const allowed=!excludeRecent&&(!protectedOnly||boundary?.afterOrder!==null);
+    const turns=new ForegroundRecentTurns(cursor=>{
+      this.assertContextCurrent(scope,revision);
+      if(!allowed)return {rows:[],hasMore:false};
+      const eligibility=protectedOnly?`AND logical_order>? AND COALESCE(origin,'')!='manual' AND
+        ((message_role='user' AND evidence_eligible=1) OR
+         (message_role='assistant' AND evidence_eligible=0 AND reason='display_only_assistant' AND id LIKE '%:assistant'
+          AND EXISTS(SELECT 1 FROM memory_records u WHERE u.character_id=r.character_id AND u.id=substr(r.id,1,length(r.id)-10)||':user'
+            AND u.kind='transcript' AND u.message_role='user' AND u.state='active' AND u.evidence_eligible=1 AND u.logical_order>?)))`:'AND evidence_eligible=1';
+      const args:unknown[]=[scope.characterId];
+      if(protectedOnly)args.push(boundary!.afterOrder,boundary!.afterOrder);
+      if(cursor)args.push(cursor.order,cursor.order,cursor.rowId);
+      args.push(pageSize+1);
+      const rows=this.#db.prepare(`SELECT r.*,r.rowid AS page_rowid FROM memory_records r
+        WHERE r.character_id=? AND r.kind='transcript' AND r.state='active'
+        AND NOT EXISTS(SELECT 1 FROM memory_import_evidence i WHERE i.character_id=r.character_id AND i.record_id=r.id)
+        ${eligibility} ${cursor?'AND (logical_order<? OR (logical_order=? AND r.rowid<?))':''}
+        ORDER BY logical_order DESC,r.rowid DESC LIMIT ?`).all(...args) as (RecordRow&{page_rowid:number})[];
+      return {hasMore:rows.length>pageSize,rows:rows.slice(0,pageSize).map(row=>({message:decodeRecord(row).message!,order:row.logical_order,rowId:row.page_rowid}))};
+    });
+    const summaries=protectedOnly?[]:(this.#db.prepare("SELECT * FROM memory_records WHERE character_id=? AND kind='summary' AND state='active' AND evidence_eligible=1 ORDER BY logical_order DESC,rowid DESC").all(scope.characterId) as RecordRow[]).map(decodeRecord);
+    return {data:{characterId:scope.characterId,revision,recent:[],summaries,memories:[]},turns};
   }
 
   /** Conversation after a durable privacy boundary, never a memory/summary evidence source. */

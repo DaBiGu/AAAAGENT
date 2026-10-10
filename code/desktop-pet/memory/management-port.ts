@@ -97,7 +97,7 @@ export class SqliteManagementMemoryPort implements ManagementMemoryPort {
       const recent=context.recent.map(record=>selected.get(record.id)!);
       const memories=context.memories.map(record=>selected.get(record.id)!);
       this.store.assertContextCurrent(scope,revision);
-      return {characterId:scope.characterId,revision,query,prompt:context.characterPrompt,recent,summaries,memories,
+      return {...(context.contextBudget?{contextBudget:context.contextBudget}:{}),characterId:scope.characterId,revision,query,prompt:context.characterPrompt,recent,summaries,memories,
         note:'按当前生效的检索与上下文预算组装；人工修改保留来源标记，未调用对话或记忆维护模型。'};
     }catch(error){return translate(error);}
   }

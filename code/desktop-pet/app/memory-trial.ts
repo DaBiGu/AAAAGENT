@@ -42,7 +42,7 @@ const normalized = (input: MemoryTurnInput) => ({ ...input, sources: ordered(inp
 const kinds = ['transcript', 'memory', 'summary', 'keyword_index', 'vector_index', 'context_cache'] as const;
 
 export async function loadMemoryTrial(root: string, stage: 'known' | 'holdout'): Promise<MemoryTrialBundle> {
-  const directory = `${root}/.local/prompt-trial-inputs`;
+  const directory = `${root}/artifacts/W0-I/prompt-trial-inputs`;
   const manifest = JSON.parse(await readFile(`${directory}/manifest.json`, 'utf8'));
   const bytes = await readFile(`${directory}/${stage}.json`);
   assert.equal(hash(bytes), manifest[`${stage}Sha256`], 'Frozen trial bundle changed');
@@ -53,7 +53,7 @@ export async function loadMemoryTrial(root: string, stage: 'known' | 'holdout'):
   assert.ok(bundle.cases.every(item => item.maxPlans === 1 || item.maxPlans === 2));
   assert.equal(bundle.cases.reduce((sum, item) => sum + item.maxPlans, 0), stage === 'known' ? 9 : 3);
   for (const [path, digest] of Object.entries(bundle.sourceFingerprints)) {
-    assert.ok(path.startsWith('.local/') && !path.split('/').includes('..'));
+    assert.ok(path.startsWith('artifacts/W0-I/') && !path.split('/').includes('..'));
     assert.equal(hash(await readFile(`${root}/${path}`)), digest, `Trial source changed: ${path}`);
   }
   return bundle;
@@ -61,7 +61,7 @@ export async function loadMemoryTrial(root: string, stage: 'known' | 'holdout'):
 
 /** A new process may advance one case only after explicit integration review of the prior case. */
 export async function reviewedTrialCount(root: string, bundle: MemoryTrialBundle, promptSha256: string): Promise<number> {
-  const directory = `${root}/.local/prompt-trial-inputs`;
+  const directory = `${root}/artifacts/W0-I/prompt-trial-inputs`;
   let approvals: { caseId: string; runId: string; reviewedBy: string; passed: boolean; promptSha256: string; fingerprints: Record<string, string> }[];
   try { approvals = JSON.parse(await readFile(`${directory}/${bundle.stage}-approvals.json`, 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
@@ -72,7 +72,7 @@ export async function reviewedTrialCount(root: string, bundle: MemoryTrialBundle
     assert.equal(approval.reviewedBy, 'W0-I'); assert.equal(approval.passed, true); assert.equal(approval.promptSha256, promptSha256);
     assert.match(approval.runId, /^lifecycle-[a-z0-9-]+$/);
     assert.deepEqual(Object.keys(approval.fingerprints).sort(), files, 'Complete per-case review fingerprints required');
-    const run = `${root}/.local/${approval.runId}`;
+    const run = `${root}/artifacts/W0-I/${approval.runId}`;
     for (const name of files) assert.equal(hash(await readFile(`${run}/${name}`)), approval.fingerprints[name], 'Reviewed trial evidence changed');
     const result = JSON.parse(await readFile(`${run}/scenarios.json`, 'utf8'));
     const manifest = JSON.parse(await readFile(`${run}/manifest.json`, 'utf8'));

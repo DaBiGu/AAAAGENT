@@ -1,66 +1,60 @@
 # Mac / Windows 与问题反馈
 
-[简体中文首页](../README.md) · [English](#english)
+[项目首页](../README.md) · [English](#english)
 
-**macOS 是目前最完善的版本。Windows 版持续完善中；如遇问题，请及时在本仓库的 Issues 中反馈，我们会在对应 Issue 中跟进处理。**
+Mac 与 Windows 的 **0.3.0-dev.1 开发候选**均同步到 2026-10-10 产品源码基线，分别保留原生宿主、依赖和运行配置。共同功能包括陪伴与记忆、管理页、微信和 T3 工程连接；平台完成的验证不同，不能用一端的测试结果替代另一端。本次不是稳定性或全部验收通过声明。
 
-## 选对源码目录
+## 选对源码和安装入口
 
 | 项目 | macOS | Windows |
 | --- | --- | --- |
-| 源码 | `code/desktop-pet/` | `windows/code/desktop-pet/` |
+| 源码 | `code/desktop-pet/`、`code/workbench/`、`t3-source/` | `windows/code/desktop-pet/`、`windows/code/workbench/`、`windows/t3-source/` |
 | 安装说明 | [Mac 安装与配置](SETUP.md) | [Windows 安装与配置](../windows/README-WINDOWS.md) |
 | 桌面宿主 | Swift / AppKit / WebKit | Electron |
-| 使用定位 | 当前功能最完整的主版本 | 源码移植版，可继续开发和反馈 |
-| Codex 任务转交 | 按本机服务配置接入 | 通过 Windows Codex app-server 适配接入，详见 Windows 安装说明 |
-| Live2D / SDK | 使用者本地自备并适配 | 使用者本地自备并适配 |
-| 账号与运行数据 | 使用自己的配置与凭据 | 使用自己的配置与凭据；不能直接沿用 Mac 的绝对路径及激活指纹 |
+| 当前目标 | 固定引擎及唤醒依赖为 Darwin arm64 | Windows x64；ARM64 未验收 |
+| 项目执行器 | 固定 Codex 0.160.0 / DSH 0.2.0-rc.2 的 Mac 运行包 | 相同版本的 Windows 运行包 |
+| 对话、ASR、TTS | 原有云端供应商配置 | 云端默认；可显式选择本地扩展 |
+| 本地模型扩展 | 本次不接入本地 ASR、TTS 或 Ollama 对话 | 三种 ASR、三种 TTS、Ollama 4B 前台候选 |
+| 私人配置和数据 | 根目录 `.local/` 与项目外受限凭据 | `windows/.local/` 与项目外受限凭据 |
+| 本次证据 | [Mac 同步与验证范围](MACOS-20261010.md) | [Windows 实测与限制](../windows/docs/WINDOWS-20261010.md) |
 
-不要把 `windows/` 内容覆盖到根目录，两个版本分别保留自己的依赖锁文件、构建和启动方式。仓库中的鲸鱼娘资源包含静态设计稿与基础分层，模型绑定仍在制作中。
+不要互相覆盖源码目录、`node_modules`、运行包、账号状态或激活指纹。固定引擎的归档、二进制和运行清单必须匹配平台。关闭网页也不等于停止工程后台；任务取消和服务退出要使用对应平台的明确入口。
 
-Windows 0.1.2 已移植文字/近期对话推测、独立用户与桌宠状态、消息快照和网页查询，并保留已有 Windows 任务适配器。旧聊天导入与自助 Key/模型/音色设置也已完成 Windows 回归；详见 [Windows 说明](../windows/README-WINDOWS.md)。
+## 资源与第三方来源
 
-视频桌宠引用 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，T3 工作台引用 [T3 Code](https://github.com/pingdotgg/t3code)。代码与素材分别遵守原许可，完整署名见 [Windows 第三方声明](../windows/THIRD_PARTY_NOTICES.md)。媒体、购买的 Live2D、SDK 和模型权重不随源码提供。
+视频桌宠基于 PC2005-cloud 的 [dsh-pet](https://github.com/PC2005-cloud/dsh-pet)：代码采用 MIT，动画、提示词和源视频遵循上游非商业条款。T3 工作台基于 [T3 Code](https://github.com/pingdotgg/t3code)。媒体、购买的 Live2D、SDK、模型权重和私人参考音频不随源码分发，角色显示需要自行准备兼容且授权明确的资源。
 
-## Windows 当前边界
+来源与分发边界见 [根目录第三方声明](../THIRD_PARTY_NOTICES.md) 和 [Windows 第三方声明](../windows/THIRD_PARTY_NOTICES.md)。构建占位只表示缺资源时界面仍可编译，不等于已有角色、模型或音色。
 
-Windows 0.3.0-dev.1 开发版已基于 2026-10-10 交接源码接入视频桌宠、Live2D 切换及本地三种 ASR、三种 TTS。新应用调用链完成 9 段合成、27 次交叉识别，模型逐个启动并记录内存/显存；另有单独运行的 [Ollama 本地前台对话候选](../windows/docs/LOCAL-LLM.md)，后台记忆仍可使用云端。Codex、DeepSeek Harness 均通过 T3 完成两轮同会话实际文件任务。作为开发候选源码发布，Mac 根目录保持独立。详情见 [本次适配与验证](../windows/docs/WINDOWS-20261010.md)，用户微调音色和实体设备需现场验证。
+## 验证范围与已知问题
 
-已知限制：4B 算术与召回有错误；明确遗忘请求的后台记忆处理曾报 `source_expansion_contains_future_message`。完整 Codex 桌面 App 双向同步、个人微调音色、实体麦克风/扬声器及长时运行仍需验证，详见上面的当前验证文档。
+Mac 此次同步在 Windows 主机上整理和检查，可验证共享 TypeScript / JavaScript、浏览器包和受控测试。Swift 编译、AppKit / WebKit 窗口、Mac 权限弹窗、真实设备及本轮原生应用互通没有因此完成验收。10/10 源包记载的 10/9 Mac 实际工程任务是历史证据，单独列于 Mac 验证文档。
 
-Windows 包提供 Electron 宿主、窗口交互、本地预览、平台路径及权限适配。离线预览会回显输入；接入真实模型需要按安装说明配置服务。
+Windows 已通过应用适配器分阶段调用三种 ASR 与三种 TTS：9 段合成样音、27 次交叉转写、3 次官方录音识别。仍有识别误差；GPT / Qwen 使用官方权重及合成参考，个人微调音色、实体麦克风 / 扬声器和持续负载未验收。Codex 与 DSH 各完成两轮 T3 同会话文件任务，不能据此宣称所有原生桌面 App 双向同步或桌宠 UI 路径通过。
 
-2026-09-19 在 Windows 11 x64 / Node 22.14.0 / Electron 44.4.1 上验证了 0.1.2：核心 563、发布 138、Windows 专项 22、情绪后端 27、工作转交 64、压力 5 项通过；情绪界面 1 项测试覆盖 6 个 Chromium 场景；安装配置 49 项通过、4 项 Unix 专属检查跳过。测试组有重叠，不应相加为独立用例总数。
+Windows 本地 4B 对话返回了正确结构和表情，但两次把 `(17 * 23) + 5` 答成 404（应为 396），上下文复述也出现失败。一次完整后端测试把“不需要长期记忆”在前台判为 `none`、后台云端严格记忆判为 `forget`，随后触发 `source_expansion_contains_future_message`。没有放宽来源保护，该轮不能算通过。9B 仅下载和准备，用户已取消，未加载或推理。详见 [本地 LLM 结果](../windows/docs/LOCAL-LLM.md)。
 
-0.1.1 已修复此前的 ACL/文件身份、人工编辑记忆和退出清理问题；0.1.2 保留修复。版本对应的真实服务、桌面及设备验证边界见 [Windows 验证记录](../windows/WINDOWS-VALIDATION.md#2026-09-19-windows-update)，历史压力记录见 [压力测试](../windows/WINDOWS-STRESS-RESULTS.md)。麦克风、摄像头、ASR、微信投递和唤醒效果仍需设备验证。
+这项后台记忆问题涉及共享处理逻辑，是 Mac 后续验收也需关注的风险；本轮没有在 Mac 复现它。Mac 不带本地模型扩展，也不因此成为离线应用。唤醒词检测与完整 ASR / TTS 是不同能力。
 
 ## 怎样反馈问题
 
-打开本仓库顶部的 **Issues → New issue**，使用问题反馈模板。请提供：
+在仓库 **Issues → New issue** 中提供：
 
-1. 系统及版本、CPU 架构、Node.js 版本。
-2. 使用的是根目录 Mac 版还是 `windows/` 版，以及提交号。
-3. 从启动到出错的具体操作、预期结果和实际结果。
-4. 去除敏感信息的错误日志，必要时附截图。
+1. 系统版本、CPU 架构、Node.js 版本与提交号。
+2. 使用根目录 Mac 版还是 `windows/` 版，以及实际启动命令。
+3. 复现步骤、预期结果、实际结果和脱敏错误日志。
+4. 语音问题所处的录音、转写、回复、合成或播放阶段；工程问题对应 Codex、DSH 或 T3 的哪条路径。
 
-语音问题请区分录音、转写、回复生成和播放；任务问题请说明执行者是 Harness 还是 Codex。请勿上传 API Key、登录二维码、账号会话、个人数据库、完整对话或无权转发的角色模型。我们会在对应 Issue 中核对复现并跟进处理。
+请勿上传 Key、登录二维码、账号会话、个人数据库、完整私人对话或无权分发的模型素材。截图和演示中的第三方角色也要保留来源署名。
 
 <a id="english"></a>
 
 ## English
 
-Windows 0.1.2 now includes text/recent-dialogue emotion inference, independent user and companion states, frozen message snapshots and a web view. Chat import and self-service key/model/voice setup are also covered by Windows regressions.
+Both **0.3.0-dev.1 development candidates** share the October 10 product baseline, with separate platform hosts and runtime installations. macOS uses root `code/` and `t3-source/`, with Swift / AppKit / WebKit and `darwin-arm64` engine pins. Windows uses `windows/`, Electron and Windows x64 pins. Follow [Mac setup](SETUP.md#english) or [Windows setup](../windows/README-WINDOWS.md).
 
-**macOS is currently the most complete version. Windows is still being improved. Please report problems through this repository's Issues, where we will follow up.**
+Mac does not include the Windows local ASR, TTS or Ollama integrations. Both retain configured cloud providers. Keep their dependencies, accounts, data and activation fingerprints separate. Supply authorized character assets; private media, SDKs, weights and credentials are excluded. Preserve attribution to PC2005-cloud's [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) and [T3 Code](https://github.com/pingdotgg/t3code); see the [third-party notices](../THIRD_PARTY_NOTICES.md).
 
-Use the root `code/desktop-pet/` for macOS, or `windows/code/desktop-pet/` for the separate Electron Windows version. Follow [Mac setup](SETUP.md#english) or [Windows setup](../windows/README-WINDOWS.md). Do not overwrite one tree with the other or share their dependency/build directories.
+The current Mac publication was checked from Windows: shared TS/JS results do not validate Swift, Mac UI, physical devices or native-app synchronization. Historical Mac task evidence is listed separately in the [Mac report](MACOS-20261010.md). Windows speech tests, 4B arithmetic/recall failures, the cloud background-memory rejection and the cancelled 9B trial belong to the [Windows evidence](../windows/docs/WINDOWS-20261010.md). Neither candidate is described as fully accepted or entirely offline.
 
-The Windows port includes an Electron host and platform-specific path, permission and window handling. Its offline preview echoes input; configure a provider for model chat. Bring your own authorized Live2D rig, SDK, credentials and configuration. The supplied character artwork contains static images and layers, with rigging still in progress.
-
-Windows 0.3.0-dev.1 is a separately published development candidate based on the October 10 handoff. It integrates video/Live2D switching and three ASR plus three TTS options into the current application. Nine real clips and 27 cross-transcriptions were tested one model at a time, with RAM/VRAM sampling. A separate [Ollama local foreground dialogue candidate](../windows/docs/LOCAL-LLM.md) retains independent background cloud providers. See [current validation](../windows/docs/WINDOWS-20261010.md); personal fine-tuned voices and physical devices require separate evaluation.
-
-Windows Codex and DeepSeek Harness both completed two real file-task turns in the same native session through T3 in the October 10 local candidate. Follow the Windows setup guide. Physical audio/video, cloud speech, WeChat delivery and wake accuracy require separate validation. Mac paths and activation fingerprints cannot be reused unchanged on Windows.
-
-The [Windows validation](../windows/WINDOWS-VALIDATION.md#2026-09-19-windows-update) records tests run on Windows 11 x64, Node 22.14.0 and Electron 44.4.1: 563 core, 138 release, 22 Windows, 27 emotion-backend, 64 work-dispatch and five stress tests passed. One Chromium test covers six emotion-page scenarios. Setup passed 49 tests, with four Unix-only checks skipped. Suites overlap. The ACL/file-identity, manual-memory and shutdown fixes from 0.1.1 remain in place. Real-service results and untested devices are dated separately in that report.
-
-To report a problem, open **Issues → New issue** and include OS/CPU/Node versions, platform directory and commit, reproduction steps, expected/actual behavior and sanitized logs. For voice issues, distinguish capture, transcription, generation and playback. Never attach credentials, login QR codes, sessions, personal databases, private chats or non-redistributable model assets. We will investigate and follow up in the issue.
+Report issues with platform, architecture, Node version, commit, startup command, reproduction steps and sanitized logs. Do not attach credentials, account sessions, private databases or non-redistributable assets.

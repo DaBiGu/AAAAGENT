@@ -1,14 +1,14 @@
-## Windows 开发版更新 · 2026-10-11
+## Mac / Windows 开发版更新 · 2026-10-11
 
-Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根目录源码保持原状，构建与依赖分别维护。V2.0 的最新进展见下方。
+Mac 与 Windows **0.3.0-dev.1** 以 10 月 10 日交接包为共同功能基线，包含新版 T3 Code / Flow 工作台、Codex / DeepSeek Harness 连接和新桌宠。Mac 源码位于根目录，使用 Swift / WebKit；Windows 源码位于 `windows/`，使用 Electron。本地 ASR、TTS 和 Ollama 对话扩展目前仅在 Windows 提供。
 
-- 视频桌宠与 Live2D 切换、T3 Code 工作台，以及固定版本 Codex / DeepSeek Harness 的 Windows 接口适配。
-- 三种本地 ASR：SenseVoice、Paraformer、Whisper；三种本地 TTS：GPT-SoVITS、Kokoro、Qwen3-TTS。分别实测，模型逐个启动，避免叠加内存与显存。
+- 两端均提供视频桌宠与 Live2D 切换源码、T3 Code 工作台及固定版本 Codex / DeepSeek Harness 连接。Mac 原生窗口、音频设备与引擎联调仍需在实际 Mac 上复验。
+- Windows 三种本地 ASR：SenseVoice、Paraformer、Whisper；三种本地 TTS：GPT-SoVITS、Kokoro、Qwen3-TTS。分别实测，模型逐个启动，避免叠加内存与显存。
 - Ollama 通过 OpenAI 兼容接口接入 Qwen3.5 4B 前台对话；后台记忆等服务仍可使用云端。4B 测试中存在算术与上下文召回错误，遗忘请求的后台处理也有已知失败，不能视为全离线或稳定版。
 
-查看 [Windows 安装](windows/README-WINDOWS.md)、[实测与已知问题](windows/docs/WINDOWS-20261010.md)、[本地对话](windows/docs/LOCAL-LLM.md)和[第三方声明](windows/THIRD_PARTY_NOTICES.md)。权重、个人音色、角色媒体、SDK、凭据和运行数据需在本地另行准备。
+查看 [Mac 安装](docs/SETUP.md)、[Mac 同步与验证范围](docs/MACOS-20261010.md)、[Windows 安装](windows/README-WINDOWS.md)、[Windows 实测与已知问题](windows/docs/WINDOWS-20261010.md)和[本地对话](windows/docs/LOCAL-LLM.md)。权重、个人音色、角色媒体、SDK、凭据和运行数据需在本地另行准备；第三方来源见 [Mac 声明](THIRD_PARTY_NOTICES.md)和 [Windows 声明](windows/THIRD_PARTY_NOTICES.md)。
 
-视频桌宠素材引用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**（v0.3.6，提交 `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`）。其代码为 MIT；动画、提示词和源视频禁止商用，衍生作品需保留原项目链接。AAAAGENT 提供 Windows 播放及状态接线适配；素材包不随本次源码分发。工作台基于 **[T3 Code](https://github.com/pingdotgg/t3code)**，保留其 MIT 许可和依赖署名。购买的 Live2D 模型继续遵守原作者条款，不再分发。
+视频桌宠素材引用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**（v0.3.6，提交 `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`）。其代码为 MIT；动画、提示词和源视频禁止商用，衍生作品需保留原项目链接。AAAAGENT 提供 Mac / Windows 播放及状态接线适配；素材包不随本次源码分发。工作台基于 **[T3 Code](https://github.com/pingdotgg/t3code)**，保留其 MIT 许可和依赖署名。购买的 Live2D 模型继续遵守原作者条款，不再分发。
 
 ---
 
@@ -16,11 +16,11 @@ Windows **0.3.0-dev.1** 源码已更新到独立的 `windows/` 目录；Mac 根�
 
 这次有了**新版 [T3 Code](https://github.com/pingdotgg/t3code) 工作台、更顺畅的工作流程、本地模型接入，以及新的桌宠**。任务组织、会话查看和继续执行集中在工作台里；Flow 用对话节点组织项目，方便在不同任务之间切换。
 
-Windows 开发版已适配 Codex 和 DeepSeek Harness，并接入本地语音识别、语音合成与 Ollama 4B 对话。模型按阶段分别运行，避免同时占满内存和显存。
+Mac 已同步交接包中的工作台与 Codex / DeepSeek Harness 连接；Windows 在同一功能基线上接入本地语音识别、语音合成与 Ollama 4B 对话。模型按阶段分别运行，避免同时占满内存和显存。
 
 **本地语音合成优先推荐 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)**。想训练自己的音色，可以参考[官方中文安装与微调指南](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/cn/README.md#微调)，并观看官方推荐的[花儿不哭 B 站介绍视频](https://www.bilibili.com/video/BV12g4y1m7Uw)。B 站也有不少相关的[训练教程与经验分享](https://search.bilibili.com/all?keyword=GPT-SoVITS%20%E8%AE%AD%E7%BB%83%E6%95%99%E7%A8%8B)，可按所用版本选择。
 
-新的桌宠使用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** 的视频动作与表情素材，感谢原作者分享。我们完成了播放、状态切换及 Windows 适配，素材仍遵守原项目的署名与使用条款。自己的 DeepSeek 大鲸鱼 Live2D 还在制作中。当前发布的是开发候选，已知问题和实测范围见[完整进展](docs/V2_RELEASE_UPDATE.md)。
+新的桌宠使用 **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** 的视频动作与表情素材，感谢原作者分享。我们提供播放、状态切换及两端窗口适配，素材仍遵守原项目的署名与使用条款。自己的 DeepSeek 大鲸鱼 Live2D 还在制作中。当前发布的是开发候选，已知问题和实测范围见[完整进展](docs/V2_RELEASE_UPDATE.md)。
 
 ![开发中的 Flow 工作台](assets/previews/v2-flow-workbench-original.jpg)
 
@@ -34,6 +34,10 @@ Windows 开发版已适配 Codex 和 DeepSeek Harness，并接入本地语音识
 
 | 修改时间 | 本次修改 |
 | --- | --- |
+| 2026-10-11 02:11 | Mac 0.3.0-dev.1 同步 10 月 10 日交接包，更新 T3 / Codex / Harness 与视频桌宠，修复公开首配及构建入口。 |
+| 2026-10-11 01:49 | 将 V2 延期公告更新为工作台、桌宠和本地模型进展，补充 GPT-SoVITS 训练参考。 |
+| 2026-10-11 01:40 | 更新 Windows 平台指南、验证范围与第三方项目署名。 |
+| 2026-10-11 01:40 | 发布独立 Windows 0.3.0-dev.1，接入三 ASR、三 TTS 和 Ollama 4B 对话。 |
 | 2026-09-21 20:31 | Mac 和 Windows 新增 API Key 连接测试，保存后自动测试一次，并按凭据显示测试结果或供应商报错。 |
 | 2026-09-21 18:46 | 修复 Mac 和 Windows 对新格式 API Key 的误拒，完整保留含点号的密钥并统一保存、读取与请求传递。 |
 | 2026-09-19 19:58 | 修复 Windows 管理员进程的默认文件所有者误判，Windows 专项和发布回归在 GitHub Actions 通过。 |
@@ -42,13 +46,14 @@ Windows 开发版已适配 Codex 和 DeepSeek Harness，并接入本地语音识
 
 ## 预开发计划
 
-以下保留原规划；Windows 已完成的开发版接入及限制见页面顶部，Mac 计划不变：
+两端的本地模型范围如下；Mac 保留原有的可选本地唤醒检测，语音与对话仍使用云端服务：
 
-| 功能 | 计划方案 | 状态 |
+| 功能 | Windows | Mac |
 | --- | --- | --- |
-| 对话 | 通过 Ollama 接入本地对话模型 | 规划中 |
-| 语音合成 | 接入 GPT-SoVITS 本地语音合成 | 规划中 |
-| 情绪识别 | 接入 Qwen-Omni 系列小模型，处理本地音视频情绪识别 | 规划中 |
+| 对话 | Ollama 4B 开发验证，存在已知错误 | 云端 |
+| 语音识别 | SenseVoice、Paraformer、Whisper | 云端 |
+| 语音合成 | GPT-SoVITS、Kokoro、Qwen3-TTS | 云端 |
+| 本地音视频情绪识别 | Qwen-Omni 系列小模型，规划中 | 规划中 |
 
 ---
 
@@ -84,11 +89,11 @@ AAAAGENT 是一个以 macOS 为主要平台、同时提供 Windows 开发版的�
 
 ## 平台选择与反馈
 
-**macOS 是目前功能最完善的版本，推荐优先体验。Windows 版持续完善中，如遇问题请及时在本仓库的 Issues 中反馈，我们会在对应 Issue 中跟进处理。**
+**两端按各自安装说明使用，均为开发候选。Mac 本次同步尚需实际设备复验；Windows 测试结果与限制已记录。如遇问题请在本仓库的 Issues 中反馈。**
 
 | 平台 | 状态与入口 |
 | --- | --- |
-| **macOS** | 当前主要维护和使用的完整版本；源码在根目录 `code/desktop-pet/`。查看 [Mac 安装说明](docs/SETUP.md)。 |
+| **macOS** | **0.3.0-dev.1**，已同步 10 月 10 日 Mac 交接包；根目录 `code/desktop-pet/` 和 `t3-source/`。查看 [安装](docs/SETUP.md)及[验证范围](docs/MACOS-20261010.md)。 |
 | **Windows** | 独立 Electron 开发版 **0.3.0-dev.1**，源码在 `windows/code/desktop-pet/`；[安装](windows/README-WINDOWS.md) · [当前验证与限制](windows/docs/WINDOWS-20261010.md) · [第三方署名](windows/THIRD_PARTY_NOTICES.md)。 |
 
 详情见 [平台差异与问题反馈](docs/PLATFORMS.md)。报告问题时请附系统版本、复现步骤和去除敏感信息的报错。两个目录分别安装依赖，勿混用配置或构建产物。
@@ -101,7 +106,7 @@ AAAAGENT 是一个以 macOS 为主要平台、同时提供 Windows 开发版的�
 
 ## 可以做什么
 
-Windows 0.1.2 已同步独立情绪状态、消息快照和情绪页面；使用入口与数据边界见 [Windows 记忆说明](windows/docs/MEMORY.md#情绪记录怎样使用)。
+两端均包含独立情绪状态、消息快照和情绪页面；Windows 使用入口与数据边界见 [Windows 记忆说明](windows/docs/MEMORY.md#情绪记录怎样使用)。
 
 以下以 macOS 版的主要能力为参考；Windows 版的可用范围见上方平台说明。
 

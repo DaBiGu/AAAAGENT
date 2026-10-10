@@ -6,6 +6,10 @@
 
 | 修改时间（北京时间） | 一句话说明 | 提交 |
 | --- | --- | --- |
+| 2026-10-11 02:11 | Mac 0.3.0-dev.1 同步 10 月 10 日交接包，更新 T3 / Codex / Harness 与视频桌宠，修复公开首配及构建入口。 | [4f5e930](https://github.com/phoiex/AAAAGENT/commit/4f5e9308aa5ef7c14ad2efca9ef0d341c585ecb5) |
+| 2026-10-11 01:49 | 将 V2 延期公告更新为工作台、桌宠和本地模型进展，补充 GPT-SoVITS 训练参考。 | [d94e413](https://github.com/phoiex/AAAAGENT/commit/d94e413ebf39430fd72fa223eb5f26fb4193c617) |
+| 2026-10-11 01:40 | 更新 Windows 平台指南、验证范围与第三方项目署名。 | [8169ff8](https://github.com/phoiex/AAAAGENT/commit/8169ff8dc2038defb3687f8689509b5f0d59fead) |
+| 2026-10-11 01:40 | 发布独立 Windows 0.3.0-dev.1，接入三 ASR、三 TTS 和 Ollama 4B 对话。 | [0ac2d6e](https://github.com/phoiex/AAAAGENT/commit/0ac2d6e6465d7c3ebc0732e5b21d6f5f4123ad40) |
 | 2026-09-21 20:31 | Mac 和 Windows 新增 API Key 连接测试，保存后自动测试一次，并按凭据显示测试结果或供应商报错。 | [c5fa300](https://github.com/phoiex/AAAAGENT/commit/c5fa300afae0e968f412ef58c964fbb93dbfd089) |
 | 2026-09-21 18:46 | 修复 Mac 和 Windows 对新格式 API Key 的误拒，完整保留含点号的密钥并统一保存、读取与请求传递。 | [8c3069b](https://github.com/phoiex/AAAAGENT/commit/8c3069b12161b388017a9fd5f857c223a31e4e1d) |
 | 2026-09-19 19:58 | 修复 Windows 管理员进程的默认文件所有者误判，Windows 专项和发布回归在 GitHub Actions 通过。 | [0ec5193](https://github.com/phoiex/AAAAGENT/commit/0ec5193661a9b6510579d64d22ef1cee8cae1e98) |
@@ -34,6 +38,10 @@ Each public repository update is listed newest first, with one sentence per chan
 
 | Time (UTC+8) | One-sentence summary | Commit |
 | --- | --- | --- |
+| 2026-10-11 02:11 | Synced Mac 0.3.0-dev.1 with the October 10 handoff, including T3 / Codex / Harness, video pet support, and public setup and build fixes. | [4f5e930](https://github.com/phoiex/AAAAGENT/commit/4f5e9308aa5ef7c14ad2efca9ef0d341c585ecb5) |
+| 2026-10-11 01:49 | Replaced the V2 delay notice with workbench, pet and local-model progress, plus GPT-SoVITS training references. | [d94e413](https://github.com/phoiex/AAAAGENT/commit/d94e413ebf39430fd72fa223eb5f26fb4193c617) |
+| 2026-10-11 01:40 | Updated Windows setup, validation scope and third-party attribution. | [8169ff8](https://github.com/phoiex/AAAAGENT/commit/8169ff8dc2038defb3687f8689509b5f0d59fead) |
+| 2026-10-11 01:40 | Published separate Windows 0.3.0-dev.1 with three ASR options, three TTS options and Ollama 4B dialogue. | [0ac2d6e](https://github.com/phoiex/AAAAGENT/commit/0ac2d6e6465d7c3ebc0732e5b21d6f5f4123ad40) |
 | 2026-09-21 20:31 | Added API key connection tests on Mac and Windows, running once after saving and showing each credential’s result or provider error. | [c5fa300](https://github.com/phoiex/AAAAGENT/commit/c5fa300afae0e968f412ef58c964fbb93dbfd089) |
 | 2026-09-21 18:46 | Fixed rejection of new-format API keys on Mac and Windows, preserving dotted keys through saving, reading and request headers. | [8c3069b](https://github.com/phoiex/AAAAGENT/commit/8c3069b12161b388017a9fd5f857c223a31e4e1d) |
 | 2026-09-19 19:58 | Fixed default file-owner checks for elevated Windows processes; Windows and release suites pass on GitHub Actions. | [0ec5193](https://github.com/phoiex/AAAAGENT/commit/0ec5193661a9b6510579d64d22ef1cee8cae1e98) |

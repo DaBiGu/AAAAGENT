@@ -1,14 +1,14 @@
-## Windows development update · 2026-10-11
+## Mac / Windows development update · 2026-10-11
 
-Windows **0.3.0-dev.1** source is available separately under `windows/`. The root Mac source remains unchanged, with separate dependencies and build commands. See the latest V2.0 progress below.
+Mac and Windows **0.3.0-dev.1** now share the October 10 handoff baseline: the newer T3 Code / Flow workbench, Codex / DeepSeek Harness connections, and the new pet. Mac uses Swift / WebKit and the root source tree; Windows uses Electron under `windows/`. Local ASR, TTS and Ollama dialogue extensions are currently available on Windows only.
 
-- Video-pet / Live2D switching, the T3 Code workbench, and Windows integration with pinned Codex and DeepSeek Harness engines.
-- Three local ASR options (SenseVoice, Paraformer, Whisper) and three TTS options (GPT-SoVITS, Kokoro, Qwen3-TTS), tested sequentially to limit RAM and VRAM pressure.
+- Both source trees include video-pet / Live2D switching, the T3 Code workbench, and pinned Codex / DeepSeek Harness connections. The refreshed Mac window, audio devices and engine integration still need validation on a Mac.
+- Windows offers three local ASR options (SenseVoice, Paraformer, Whisper) and three TTS options (GPT-SoVITS, Kokoro, Qwen3-TTS), tested sequentially to limit RAM and VRAM pressure.
 - Qwen3.5 4B foreground dialogue through Ollama's OpenAI-compatible endpoint. Background memory may still use cloud services. Tests exposed arithmetic and recall errors, plus a known background forgetting-processing failure; this is a development candidate, not a fully offline or stable release.
 
-See [Windows setup](windows/README-WINDOWS.md), [validation and known issues](windows/docs/WINDOWS-20261010.md), [local dialogue](windows/docs/LOCAL-LLM.md), and [third-party notices](windows/THIRD_PARTY_NOTICES.md). Supply model weights, personal voices, character media, SDKs, credentials and runtime data separately.
+See [Mac setup](docs/SETUP.md#english), [Mac scope and validation](docs/MACOS-20261010.md), [Windows setup](windows/README-WINDOWS.md), [Windows validation and known issues](windows/docs/WINDOWS-20261010.md), and [local dialogue](windows/docs/LOCAL-LLM.md). Supply model weights, personal voices, character media, SDKs, credentials and runtime data separately. See the [Mac](THIRD_PARTY_NOTICES.md) and [Windows](windows/THIRD_PARTY_NOTICES.md) third-party notices.
 
-Video-pet material comes from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** (v0.3.6, commit `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`). Its code is MIT; animations, prompts and source videos prohibit commercial use and require the original project link in derivative introductions, displays and distributions. AAAAGENT supplies Windows playback and state integration; the media bundle is not included. The workbench derives from **[T3 Code](https://github.com/pingdotgg/t3code)** with its MIT license and dependency notices preserved. Purchased Live2D assets retain their original terms and are not redistributed.
+Video-pet material comes from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)** (v0.3.6, commit `d422f274e7ca0580dc8e4370fd96ca4d2b4d84b3`). Its code is MIT; animations, prompts and source videos prohibit commercial use and require the original project link in derivative introductions, displays and distributions. AAAAGENT supplies Mac / Windows playback and state integration; the media bundle is not included. The workbench derives from **[T3 Code](https://github.com/pingdotgg/t3code)** with its MIT license and dependency notices preserved. Purchased Live2D assets retain their original terms and are not redistributed.
 
 ---
 
@@ -16,11 +16,11 @@ Video-pet material comes from **[PC2005-cloud/dsh-pet](https://github.com/PC2005
 
 This update brings **a newer [T3 Code](https://github.com/pingdotgg/t3code) workbench, a smoother workflow, local model support, and a new desktop pet**. Task organization, conversation browsing and continuation come together in the workbench. Flow organizes projects as conversation nodes for easier movement between tasks.
 
-The Windows development version integrates Codex and DeepSeek Harness, local ASR and TTS, and 4B dialogue through Ollama. Run models in separate stages to keep RAM and VRAM use manageable.
+Mac now includes the handoff's workbench and Codex / DeepSeek Harness connections. Windows adds local ASR and TTS, and 4B dialogue through Ollama on the same feature baseline. Run models in separate stages to keep RAM and VRAM use manageable.
 
 **[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) is our first recommendation for local speech synthesis.** For your own voice, start with the [official Chinese installation and fine-tuning guide](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/cn/README.md#微调) and the README's recommended [Bilibili introduction by 花儿不哭](https://www.bilibili.com/video/BV12g4y1m7Uw). Bilibili also offers [training guides and community walkthroughs](https://search.bilibili.com/all?keyword=GPT-SoVITS%20%E8%AE%AD%E7%BB%83%E6%95%99%E7%A8%8B); choose one matching your version.
 
-The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**. Thank you to its original author. We provide playback, state switching and Windows integration, while the media retains its original attribution and usage terms. Our own DeepSeek whale Live2D is still in production. This is a development candidate; see the [full update](docs/V2_RELEASE_UPDATE.md#english) for validation and known limitations.
+The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**. Thank you to its original author. We provide playback, state switching and platform integration, while the media retains its original attribution and usage terms. Our own DeepSeek whale Live2D is still in production. This is a development candidate; see the [full update](docs/V2_RELEASE_UPDATE.md#english) for validation and known limitations.
 
 ![Flow workbench development preview](assets/previews/v2-flow-workbench-original.jpg)
 
@@ -34,6 +34,10 @@ The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](
 
 | Time | Change |
 | --- | --- |
+| 2026-10-11 02:11 | Synced Mac 0.3.0-dev.1 with the October 10 handoff, including T3 / Codex / Harness, video pet support, and public setup and build fixes. |
+| 2026-10-11 01:49 | Replaced the V2 delay notice with workbench, pet and local-model progress, plus GPT-SoVITS training references. |
+| 2026-10-11 01:40 | Updated Windows setup, validation scope and third-party attribution. |
+| 2026-10-11 01:40 | Published separate Windows 0.3.0-dev.1 with three ASR options, three TTS options and Ollama 4B dialogue. |
 | 2026-09-21 20:31 | Added API key connection tests on Mac and Windows, running once after saving and showing each credential’s result or provider error. |
 | 2026-09-21 18:46 | Fixed rejection of new-format API keys on Mac and Windows, preserving dotted keys through saving, reading and request headers. |
 | 2026-09-19 19:58 | Fixed default file-owner checks for elevated Windows processes; Windows and release suites pass on GitHub Actions. |
@@ -42,13 +46,14 @@ The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](
 
 ## Planned development
 
-The original roadmap remains below; see the Windows development progress and limitations above. The Mac roadmap is unchanged:
+Local-model scope differs by platform. Mac retains its existing optional local wake-word detector and uses cloud speech and dialogue services:
 
-| Capability | Planned approach | Status |
+| Capability | Windows | Mac |
 | --- | --- | --- |
-| Dialogue | Local dialogue models through Ollama | Planned |
-| Speech synthesis | Local speech synthesis with GPT-SoVITS | Planned |
-| Emotion recognition | Small Qwen-Omni family models for local audio/video emotion recognition | Planned |
+| Dialogue | Ollama 4B development validation, with known errors | Cloud |
+| Speech recognition | SenseVoice, Paraformer, Whisper | Cloud |
+| Speech synthesis | GPT-SoVITS, Kokoro, Qwen3-TTS | Cloud |
+| Local audiovisual emotion recognition | Small Qwen-Omni family models, planned | Planned |
 
 ---
 
@@ -84,11 +89,11 @@ AAAAGENT is a desktop companion developed primarily for macOS, with a separate W
 
 ## Platforms and feedback
 
-**macOS is currently the most complete version and the recommended starting point. The Windows version is still being improved. If you encounter a problem, please report it in this repository's Issues; we will follow up in the corresponding issue.**
+**Both platforms are development candidates with separate setup instructions. This Mac refresh still needs native-device validation; Windows measurements and limitations are documented. Please report reproducible problems in this repository's Issues.**
 
 | Platform | Status and entry point |
 | --- | --- |
-| **macOS** | The primary version, with source in the root `code/desktop-pet/`. See [Mac setup](docs/SETUP.md#english). |
+| **macOS** | **0.3.0-dev.1**, synchronized with the October 10 Mac handoff, in root `code/desktop-pet/` and `t3-source/`. See [setup](docs/SETUP.md#english) and [validation scope](docs/MACOS-20261010.md). |
 | **Windows** | Separate Electron development candidate **0.3.0-dev.1** in `windows/code/desktop-pet/`; [setup](windows/README-WINDOWS.md) · [validation and limits](windows/docs/WINDOWS-20261010.md) · [credits](windows/THIRD_PARTY_NOTICES.md). |
 
 See [platform differences and issue reporting](docs/PLATFORMS.md#english). Include your OS version, reproduction steps and sanitized errors. Install dependencies separately for each platform; do not mix configuration or build outputs.
@@ -101,7 +106,7 @@ New: **Memory → Import past chats** imports explicitly selected local history 
 
 ## Features
 
-The overview below primarily describes the macOS version. Windows 0.1.2 now includes emotion states, message snapshots and the emotion page; see [Windows memory documentation](windows/docs/MEMORY.md#english) for usage and data boundaries.
+The overview below covers shared features. Both platforms include emotion states, message snapshots and the emotion page; see [Windows memory documentation](windows/docs/MEMORY.md#english) for its usage and data boundaries.
 
 | Capability | What the code provides |
 | --- | --- |

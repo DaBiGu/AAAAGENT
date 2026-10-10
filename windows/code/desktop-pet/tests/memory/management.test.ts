@@ -18,10 +18,10 @@ import { scope, message, change, seed, NOW } from './sqlite-fixture.js';
 const receipts:unknown[]=[];
 after(()=>{if(process.env.W3_MANAGEMENT_RECEIPT)writeFileSync(process.env.W3_MANAGEMENT_RECEIPT,JSON.stringify({evidence:'ManagementMemoryPort + real synthetic SQLite; no HTTP/UI/model/device claim',receipts},null,2)+'\n');});
 function fixture(maxBytes=CONFIRMED_RETENTION.transcriptMaxBytes) {
-  const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../.local/companion-step1-01/tmp');
+  const parent=resolve(dirname(fileURLToPath(import.meta.url)),'../../../../../artifacts/W3/companion-step1-01/tmp');
   mkdirSync(parent,{recursive:true});const directory=mkdtempSync(join(parent,'case-')),filename=join(directory,'pet.sqlite');
-  let now=NOW;const stores:SqliteMemoryStore[]=[];const readers:Database.Database[]=[];
-  return {filename,track(reader:Database.Database){readers.push(reader);},setTime(value:string){now=value;},open(){const store=new SqliteMemoryStore({filename,retention:{...CONFIRMED_RETENTION,transcriptMaxBytes:maxBytes},invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=>now});stores.push(store);return store;},cleanup(){for(const reader of readers)reader.close();for(const store of stores)store.close();rmSync(directory,{recursive:true,force:true});}};
+  let now=NOW;const stores:SqliteMemoryStore[]=[],readers:Database.Database[]=[];
+  return {filename,track(reader:Database.Database){readers.push(reader);return reader;},setTime(value:string){now=value;},open(){const store=new SqliteMemoryStore({filename,retention:{...CONFIRMED_RETENTION,transcriptMaxBytes:maxBytes},invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=>now});stores.push(store);return store;},cleanup(){for(const reader of readers)reader.close();for(const store of stores)store.close();rmSync(directory,{recursive:true,force:true});}};
 }
 const query=(characterId:CharacterId='companion',kind:RecordQuery['kind']='memory',text=''):RecordQuery=>({characterId,kind,query:text,state:'active',offset:0,limit:50});
 const edit=(id:string,text:string,operationId='manual-1',characterId:CharacterId='companion',expectedVersion=1):RecordEdit=>({characterId,id,text,operationId,expectedVersion,reason:'用户在管理页更正'});
@@ -77,7 +77,7 @@ test('raw edit persists manual origin, invalidates old dependent memory and repl
   const result=api.edit(request);assert.equal(store.inspect(scope(),'job')!.state,'deleted');
   const raw=store.inspect(scope(),'raw')!;assert.equal(raw.message!.origin,'manual');assert.deepEqual(raw.sources,[]);assert.equal(raw.createdAt,NOW);
   const context=await api.context('companion','工作');assert.ok(context.recent.some(row=>row.id==='raw'&&row.text===request.text&&row.origin==='manual'));
-  const db=new Database(f.filename);const operation=db.prepare("SELECT signature,result_json FROM memory_operations WHERE character_id='companion' AND operation_id=?").get(request.operationId) as {signature:string;result_json:string};db.close();
+  const db=f.track(new Database(f.filename));const operation=db.prepare("SELECT signature,result_json FROM memory_operations WHERE character_id='companion' AND operation_id=?").get(request.operationId) as {signature:string;result_json:string};db.close();
   assert.ok(!JSON.stringify(operation).includes(request.text));assert.ok(!JSON.stringify(operation).includes('海风'));
   store.close();store=f.open();port=lifecycle(store);api=new SqliteManagementMemoryPort(store,port);
   assert.deepEqual(api.edit(request),result);assert.equal(store.inspect(scope(),'raw')!.version,2);
@@ -90,11 +90,13 @@ test('raw edit persists manual origin, invalidates old dependent memory and repl
 
 test('manual assistant becomes labelled human evidence; exact partial retention keeps manual root while automatic derivatives do not',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open(),owned=scope();
-  store.append(owned,[replyMessage(owned,'未经证明的旧助手猜测')]);
+  store.append(owned,[message('turn-1:user','聊聊喜好'),replyMessage(owned,'未经证明的旧助手猜测')]);
   const port=lifecycle(store),api=new SqliteManagementMemoryPort(store,port);
-  assert.equal((await api.context('companion','喜好')).recent.length,0);
+  assert.deepEqual((await api.context('companion','喜好')).recent.map(row=>row.id),['turn-1:user']);
   api.edit(edit('turn-1:assistant','我喜欢种花，也喜欢游泳'));
-  const labelled=await api.context('companion','喜好');assert.equal(labelled.recent[0]!.origin,'manual');assert.equal(labelled.recent[0]!.role,'assistant');assert.deepEqual(labelled.recent[0]!.sources,[]);
+  const labelled=await api.context('companion','喜好'),manual=labelled.recent.find(row=>row.id==='turn-1:assistant')!;
+  assert.equal(manual.origin,'manual');assert.equal(manual.role,'assistant');assert.deepEqual(manual.sources,[]);
+  assert.deepEqual(labelled.recent.map(row=>row.id),['turn-1:user','turn-1:assistant']);
   const later=scope('companion','forget');await port.append(later,[message('forget','忘记种花')]);
   let captured!:MemoryTurnInput;
   const resolver=lifecycle(store,async input=>{
@@ -191,7 +193,7 @@ test('prompt A-B-A does not make an obsolete operation replay current again',t=>
 
 test('native failure rolls back record, derivatives, FTS, revision, epoch and operation reservation',t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();seed(store);store.recordDerived(scope(),{id:'cache',kind:'context_cache',text:'cached',sourceIds:['job'],createdAt:NOW});
-  const db=new Database(f.filename);f.track(db);const before=db.prepare("SELECT revision,epoch,prompt FROM characters WHERE character_id='companion'").get();
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());const before=db.prepare("SELECT revision,epoch,prompt FROM characters WHERE character_id='companion'").get();
   db.exec("CREATE TRIGGER fail_manual BEFORE UPDATE ON memory_records WHEN NEW.origin='manual' BEGIN SELECT RAISE(ABORT,'synthetic_failure'); END");
   const api=new SqliteManagementMemoryPort(store,lifecycle(store)),request=edit('job','不能半写');
   assert.throws(()=>api.edit(request),errorCode('unavailable'));assert.deepEqual(db.prepare("SELECT revision,epoch,prompt FROM characters WHERE character_id='companion'").get(),before);
@@ -213,13 +215,13 @@ test('raw edits keep original expiry and byte quota, long memory remains indepen
   assert.equal(store.inspect(scope(),'raw')!.text,'');assert.equal(store.inspect(scope(),'raw')!.state,'expired');assert.equal(store.transcriptBytes(),0);
   assert.throws(()=>api.edit(request),errorCode('version_conflict'));assert.deepEqual(api.list(query('companion','transcript')).records,[]);
   assert.equal((await api.context('companion','长期事实')).memories[0]!.text,memory.record.text);
-  const db=new Database(f.filename);const logged=db.prepare('SELECT signature,result_json FROM memory_operations').all();db.close();assert.ok(!JSON.stringify(logged).includes(request.text));
+  const db=f.track(new Database(f.filename));const logged=db.prepare('SELECT signature,result_json FROM memory_operations').all();db.close();assert.ok(!JSON.stringify(logged).includes(request.text));
   receipts.push({case:'retention',expired:api.list({...query('companion','transcript'),state:'all'}),longMemory:api.list(query()),replay:'version_conflict',transcriptBytes:store.transcriptBytes()});
 });
 
 test('new product schema database gains nullable origin metadata without changing historical rows; preview refuses other instances and late scope/version changes',async t=>{
   const f=fixture();t.after(f.cleanup);let store=f.open();seed(store);const before=store.inspect(scope(),'raw');store.close();
-  const db=new Database(f.filename);db.exec('ALTER TABLE memory_records DROP COLUMN origin');db.close();store=f.open();
+  const db=f.track(new Database(f.filename));db.exec('ALTER TABLE memory_records DROP COLUMN origin');db.close();store=f.open();
   assert.deepEqual(store.inspect(scope(),'raw'),before);const port=lifecycle(store),api=new SqliteManagementMemoryPort(store,port);
   const second=f.open();assert.throws(()=>new SqliteManagementMemoryPort(second,port),errorCode('unavailable'));
   const entered=deferred<void>(),release=deferred<void>();

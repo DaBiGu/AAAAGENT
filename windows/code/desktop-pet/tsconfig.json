@@ -26,6 +26,7 @@
     "management/**/*.ts",
     "harness/**/*.ts",
     "projects/**/*.ts",
+    "workbench/**/*.ts",
     "desktop/**/*.ts",
     "tests/**/*.ts"
   ],

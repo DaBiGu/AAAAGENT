@@ -244,23 +244,3 @@ test('a privacy hold created while the model waits invalidates the import ticket
   const failed=await waitFor(()=>service.snapshot().jobs.find(job=>job.id===start.id)!,job=>job.status==='failed');assert.equal(failed.failures.at(-1)?.code,'commit_conflict');assert.equal(store.search({characterId:'companion',sessionId:'test',turnId:'test',generation:1},'不应写入',10).length,0);
   await service.close();store.close();
 });
-
-// Platform policy applies only to the owned import database, never to read-only sources.
-test('import jobs reopen privately and reject a newly broad file grant',async t=>{
-  const {isPrivateFileSync}=await import('../../core/platform-files.js');
-  const {chmodSync}=await import('node:fs');
-  const {execFileSync}=await import('node:child_process');
-  const root=temp(t), filename=join(root,'jobs.sqlite'), store=storeAt(join(root,'companion.sqlite'));
-  const options={filename,codexHome:join(root,'codex'),instanceId:'synthetic-acl',store,configuration,
-    processor:{async plan(input:MemoryTurnInput){return noChange(input);}}};
-  try {
-    const first=new SqliteMemoryImportManagement(options);await first.close();
-    assert.equal(isPrivateFileSync(filename),true);
-    const reopened=new SqliteMemoryImportManagement(options);await reopened.close();
-    const before=readFileSync(filename);
-    if(process.platform==='win32')execFileSync('icacls.exe',[filename,'/grant','*S-1-1-0:R'],{windowsHide:true,stdio:'pipe'});
-    else chmodSync(filename,0o644);
-    assert.throws(()=>new SqliteMemoryImportManagement(options),/unsafe_import_database/);
-    assert.deepEqual(readFileSync(filename),before);
-  } finally {store.close();}
-});

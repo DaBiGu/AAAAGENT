@@ -18,10 +18,10 @@ const raw = (bytes = wav()) => ({ output: { base_resp: { status_code: 0, status_
   extra_info: { audio_format: 'wav', audio_sample_rate: 24000, audio_channel: 1, audio_size: bytes.length } },
   usage: { characters: 12 }, request_id: 'synthetic-request' });
 async function harness(t: TestContext, options: { model?: string; response?: () => unknown; fetcher?: typeof fetch; settle?: () => void; store?: MediaStorePort } = {}) {
-  const parent = resolve('../../.local/minimax-hd-default-01/test-runs'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W2/minimax-hd-default-01/test-runs'); await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(join(parent, 'minimax-')); t.after(() => rm(directory, { recursive: true, force: true }));
   const registry = await RegisteredVoiceStore.open(join(directory, 'registered-voices.json'));
-  const voice = { voiceId: 'example-voice', label: '隔离测试', provider: 'dashscope' as const, endpoint: MINIMAX_TTS_ENDPOINT,
+  const voice = { voiceId: 'DaniaSynthetic001', label: '隔离测试', provider: 'dashscope' as const, endpoint: MINIMAX_TTS_ENDPOINT,
     targetModel: options.model ?? MINIMAX_TTS_MODEL, credentialRef: 'dashscope-123456abcdef', referenceSha256: 'b'.repeat(64), createdAt: '2026-09-11T00:00:00.000Z' };
   await registry.register(0, voice);
   const calls: { url: string; init?: RequestInit }[] = [], permits: CallRequest[] = [], outcomes: CallOutcome[] = []; let keyReads = 0;

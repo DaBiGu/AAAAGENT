@@ -32,6 +32,10 @@ API Key 按完整凭据保存与发送，兼容带点号等新格式；只清除
 
 ## 完成设置与启动
 
+### 本地 ASR/TTS 的独立准备
+
+Windows 0.3.0-dev.1 已接入 [本地语音模块](../local-models/README.md)：SenseVoice、Paraformer、Whisper 三种 ASR，以及 GPT-SoVITS、Kokoro、Qwen3-TTS 三种 TTS。对话继续使用本页云端配置。退出桌宠后用 `tools/configure-local-speech.mjs` 选择语音方案，再启动单模型服务；具体步骤及新的资源受控实测见 [Windows 本次适配](WINDOWS-20261010.md)。网页供应商选择页仍用于云端配置；本地语音当前通过配置工具选择。
+
 按 [Live2D 接入说明](LIVE2D.md)配置自己的素材、参数映射和表现目录，再完成本机桌面构建。首次设置页会列出缺项；缺模型或构建时仍可以保存 Key、选择模型和准备音色。
 
 Mac 桌面构建：
@@ -68,7 +72,7 @@ Mac Harness 使用本机服务与预设连接，当前适配协议为 0.1.5-rc.1
 
 Windows 0.1.1 已修复 ACL/文件身份问题，0.1.2 保留该修复。本机设置测试 49 项通过、4 项 Unix 专属检查跳过；参考音频使用合成数据，未调用付费克隆。结果和设备边界见 [Windows 验证](../WINDOWS-VALIDATION.md#2026-09-19-windows-update)。
 
-发布前在干净副本运行 `python3 tools/check-release.py`。排除 `node_modules`、构建产物、`.local/`、数据库、密钥、参考/样音、模型和 SDK，保留第三方许可。不要复制私有工程 Git 历史。检查器检查目录结构和已知敏感信息模式，素材许可需另行核对。
+发布前，安装 Python 3 并从干净发布副本的 `windows/` 目录运行 `python tools/check-release.py`；从仓库根目录运行时使用 `python windows/tools/check-release.py`。扫描器只为[第三方声明](../THIRD_PARTY_NOTICES.md)中的四个 CC0 MP3 和两个已许可的 Ghostty WASM 保留精确路径与 SHA-256 白名单，文件内容变化后需要重新审核。排除 `node_modules`、构建产物、`.local/`、数据库、密钥、参考/样音、模型和 SDK，保留第三方许可。不要复制私有工程 Git 历史。检查器检查目录结构和已知敏感信息模式，素材许可需另行核对。
 
 <a id="english"></a>
 
@@ -79,6 +83,8 @@ Windows 0.1.1 已修复 ACL/文件身份问题，0.1.2 保留该修复。本机�
 From this version's `code/desktop-pet/`, run `npm ci`, `npm run build`, then `npm run configure-local`. Use `npm.cmd` in Windows PowerShell. Keep the terminal open and visit its local URL; the URL contains a session token and must remain private. Opening setup performs no provider request, account login or device access. Existing installations use the running console's model/voice page. A full desktop still requires your own licensed Live2D model, Cubism SDK and native/Electron build; follow the [platform instructions](../README-WINDOWS.md) on Windows.
 
 Text dialogue uses **DeepSeek**. ASR, multimodal models and **DashScope-hosted MiniMax** use an **Alibaba Bailian Key**. First enable the relevant models in [Bailian](https://bailian.console.aliyun.com/) and obtain a Key using the [official guide](https://help.aliyun.com/zh/model-studio/get-api-key). Before trying the service, confirm model access and sufficient account balance, then save the Key. [DeepSeek keys](https://platform.deepseek.com/api_keys) are configured separately.
+
+Windows 0.3.0-dev.1 connects the [local speech gateway](../local-models/README.md#english) to the application. Select local speech with `tools/configure-local-speech.mjs`; cloud settings remain separate. Start one model per review phase. See the [October 10 integration and measured results](WINDOWS-20261010.md). The cloud setup page does not select local speech models.
 
 Save keys explicitly in the local form. Each save triggers one connection test; each saved credential also has a “测试连接” button. This only reads the provider’s model list and generates no content. Success shows “连接测试通过”; failures show the provider error with sensitive data removed. Failures keep the key, and refreshing does not repeat the test. Bailian testing uses the currently supported Beijing endpoint; individual models still need access. Restricted per-install files remain outside the repository; responses contain references/status, never key values. New saves preserve old entries and voice bindings. Manually select the intended credential for each model and save; selection alone makes no network request. Existing runtime settings take effect after restart.
 
@@ -102,4 +108,4 @@ Install, launch and sign into/configure [DeepSeek Harness](https://github.com/de
 
 `npm run test:setup` uses synthetic keys/audio and local HTTP. After setup, try the service with your own account and devices. Windows 0.1.2 retains the ACL/file-identity fixes from 0.1.1. On Windows, 49 setup tests passed and four Unix-specific checks were skipped; synthetic voice tests did not call paid cloning. See the [dated validation](../WINDOWS-VALIDATION.md#2026-09-19-windows-update).
 
-Keep `.local/`, external key files, databases, reference/sample audio, dependencies, builds, private models and SDKs out of Git. Use `python3 tools/check-release.py` on a clean release copy and preserve licensing. No credentials, private history, cloned voice material or external executor installations are bundled.
+Keep `.local/`, external key files, databases, reference/sample audio, dependencies, builds, private models and SDKs out of Git. With Python 3 installed, run `python tools/check-release.py` from the clean release copy's `windows/` directory, or `python windows/tools/check-release.py` from its repository root. Only the four CC0 MP3 files and two licensed Ghostty WASM files listed in the [third-party notices](../THIRD_PARTY_NOTICES.md) have exact-path and SHA-256 exceptions; changed content requires a new review. Preserve licensing. No credentials, private history, cloned voice material or external executor installations are bundled.

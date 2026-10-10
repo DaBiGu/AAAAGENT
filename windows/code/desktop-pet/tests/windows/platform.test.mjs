@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm, mkdir, readFile, symlink, open, stat } from 'no
 import { tmpdir } from 'node:os';
 import { join, resolve, win32 } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { isOutside, isPrivateFileSync, restrictPrivatePathSync } from '../../dist/core/platform-files.js';
+import { isOutside, isPrivateDirectorySync, isPrivateFileSync, restrictPrivatePathSync } from '../../dist/core/platform-files.js';
 import { assetResponse } from '../../desktop/electron/assets.mjs';
 import { fitDisplay } from '../../desktop/electron/layout.mjs';
 import { SqliteProjectIndex } from '../../dist/projects/sqlite-project-index.js';
@@ -76,6 +76,18 @@ test('finance credentials save and reopen under the Windows private-file policy'
   const dir = await fixture(t), store = new FinanceCredentials(dir);
   await store.save(0, 'synthetic-id', 'synthetic-secret');
   assert.equal((await new FinanceCredentials(dir).read()).revision, 1);
+});
+
+test('private storage checks support long Windows paths used by hashed board actor contexts', async t => {
+  const root = await fixture(t), directory = join(root, 'a'.repeat(80), 'b'.repeat(80));
+  await mkdir(directory, { recursive: true });
+  restrictPrivatePathSync(directory);
+  assert.equal(isPrivateDirectorySync(directory), true);
+  const file = join(directory, 'actor-' + 'c'.repeat(64) + '.json');
+  await writeFile(file, '{"fixture":true}');
+  restrictPrivatePathSync(file);
+  assert.equal(isPrivateFileSync(file), true);
+  assert.equal(await readFile(file, 'utf8'), '{"fixture":true}');
 });
 test('private-file validation compares opened file identity without mixing Windows stat devices', async t => {
   const dir = await fixture(t), first = join(dir, 'first.key'), other = join(dir, 'other.key');

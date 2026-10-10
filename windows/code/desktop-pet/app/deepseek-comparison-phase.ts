@@ -14,7 +14,7 @@ export function normalizedComparisonInput(input: MemoryTurnInput): MemoryTurnInp
   return { ...input, sources: sort(input.sources), messages: sort(input.messages), relevantMemories: sort(input.relevantMemories) };
 }
 export async function assertComparisonOpen(root: string): Promise<void> {
-  const directory = `${root}/.local/deepseek-comparison`;
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`;
   for (const name of ['STOPPED.json', 'COMPLETED.json']) {
     try { await access(`${directory}/${name}`); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
@@ -23,7 +23,7 @@ export async function assertComparisonOpen(root: string): Promise<void> {
 }
 export async function loadDeepSeekComparison(root: string): Promise<{ bundle: MemoryTrialBundle; expanded: MemoryTurnInput; configSha256: string }> {
   await assertComparisonOpen(root);
-  const directory = `${root}/.local/deepseek-comparison`;
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`;
   const manifest = JSON.parse(await readFile(`${directory}/inputs-manifest.json`, 'utf8'));
   const board = JSON.parse(await readFile(`${root}/docs/agent/blackboard/CURRENT.json`, 'utf8'));
   assert.equal(board.publication_pending, false);
@@ -37,22 +37,22 @@ export async function loadDeepSeekComparison(root: string): Promise<{ bundle: Me
   assert.deepEqual(config.request_parameters, { stream: false, thinking: { type: 'disabled' }, response_format: { type: 'json_object' } });
   assert.deepEqual(config.cases, comparisonOrder.map(id => ({ id, max_calls: id === 'closure' ? 2 : 1 })));
   assert.equal(comparisonHash(await readFile(`${directory}/prior-budget.json`)), manifest.priorBudgetSha256);
-  const oldStopHash = comparisonHash(await readFile(`${root}/.local/prompt-trial-inputs/STOPPED.json`));
+  const oldStopHash = comparisonHash(await readFile(`${root}/artifacts/W0-I/prompt-trial-inputs/STOPPED.json`));
   assert.equal(oldStopHash, manifest.oldStopSha256); assert.equal(oldStopHash, config.old_stopped_record_sha256);
   const known = await loadMemoryTrial(root, 'known');
-  assert.equal(comparisonHash(await readFile(`${root}/.local/prompt-trial-inputs/known.json`)), config.known_bundle_sha256);
+  assert.equal(comparisonHash(await readFile(`${root}/artifacts/W0-I/prompt-trial-inputs/known.json`)), config.known_bundle_sha256);
   const bytes = await readFile(`${directory}/inputs.json`); assert.equal(comparisonHash(bytes), manifest.inputsSha256);
   const bundle = JSON.parse(bytes.toString()) as MemoryTrialBundle;
   assert.deepEqual(bundle, { ...known, cases: comparisonOrder.map(id => known.cases.find(item => item.id === id)) });
   for (const fixture of bundle.cases) assert.equal(comparisonHash(buildMemoryTurnFormat(fixture.input, 'quoted-v2').system), COMPARISON_PROMPT_SHA);
-  const expandedBytes = await readFile(`${root}/.local/source-budget-v2/complete-input.json`);
+  const expandedBytes = await readFile(`${root}/artifacts/W0-I/source-budget-v2/complete-input.json`);
   assert.equal(comparisonHash(expandedBytes), manifest.expandedInputSha256);
   return { bundle, expanded: JSON.parse(expandedBytes.toString()) as MemoryTurnInput, configSha256: manifest.configSha256 };
 }
 
 /** Reviews are written by W0-I after inspecting each actual result. Assertions alone cannot advance. */
 export async function reviewedComparisonCount(root: string, bundle: MemoryTrialBundle, configSha256: string): Promise<number> {
-  const directory = `${root}/.local/deepseek-comparison`;
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`;
   let approvals: { caseId: string; runId: string; passed: boolean; reviewedBy: string; fingerprints: Record<string, string> }[];
   try { approvals = JSON.parse(await readFile(`${directory}/approvals.json`, 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
@@ -63,7 +63,7 @@ export async function reviewedComparisonCount(root: string, bundle: MemoryTrialB
     assert.equal(approval.caseId, fixture.id); assert.equal(approval.passed, true); assert.equal(approval.reviewedBy, 'W0-I');
     assert.match(approval.runId, /^lifecycle-deepseek-[a-z0-9-]+$/);
     assert.deepEqual(Object.keys(approval.fingerprints).sort(), names);
-    const path = `${root}/.local/${approval.runId}`;
+    const path = `${root}/artifacts/W0-I/${approval.runId}`;
     for (const name of names) assert.equal(comparisonHash(await readFile(`${path}/${name}`)), approval.fingerprints[name], 'Reviewed comparison evidence changed');
     const manifest = JSON.parse(await readFile(`${path}/manifest.json`, 'utf8'));
     const result = JSON.parse(await readFile(`${path}/scenarios.json`, 'utf8'));

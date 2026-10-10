@@ -83,10 +83,10 @@ test('a real evaluation step executes only its selected case and requires later 
 });
 
 test('advancing a trial requires ordered independent review, unchanged evidence and the same candidate', async t => {
-  const f = await fixtures(t), root = join(f.out, '..'), directory = join(root, '.local/prompt-trial-inputs');
+  const f = await fixtures(t), root = join(f.out, '..'), directory = join(root, 'artifacts/W0-I/prompt-trial-inputs');
   await mkdir(directory, { recursive: true });
   assert.equal(await reviewedTrialCount(root, f.bundle, 'fixed-prompt'), 0);
-  const runId = 'lifecycle-controlled-first', run = join(root, '.local', runId); await mkdir(run);
+  const runId = 'lifecycle-controlled-first', run = join(root, 'artifacts/W0-I', runId); await mkdir(run);
   const evidence = {
     'manifest.json': { trialPromptHash: 'fixed-prompt', memoryWireMode: 'quoted-v2', generationCalls: 1 },
     'scenarios.json': { selectedCaseId: 'first', checks: [{ id: 'first', passed: true }] },
@@ -108,7 +108,7 @@ test('advancing a trial requires ordered independent review, unchanged evidence 
 });
 
 test('a stopped trial rejects either stage before reading credentials or source bundles', async t => {
-  const f = await fixtures(t), root = join(f.out, '..'), directory = join(root, '.local/prompt-trial-inputs');
+  const f = await fixtures(t), root = join(f.out, '..'), directory = join(root, 'artifacts/W0-I/prompt-trial-inputs');
   await mkdir(directory, { recursive: true }); await writeFile(join(directory, 'STOPPED.json'), '{}');
   for (const suite of ['prompt-trial-known', 'prompt-trial-holdout'] as const) {
     await assert.rejects(evaluateLifecycle(root, '/must-not-read-credentials', 'lifecycle-must-not-run', suite, 'quoted-v2'), /Bounded trial is stopped/);

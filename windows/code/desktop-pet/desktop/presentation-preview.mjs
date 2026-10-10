@@ -1,6 +1,6 @@
 // One isolated, silent rig per canvas. The management host supplies only its
 // fixed same-origin asset/shader routes and loads the official Core first.
-import catalog from './assets/local-model/presets.json';
+import catalog from './assets/jellyfish/presets.json';
 const instances = new WeakMap();
 export async function createPresentationPreview({ canvas, onStatus = () => {}, assetBase, shaderBase }) {
   if (!canvas?.getContext) throw new Error('预览画布不可用');

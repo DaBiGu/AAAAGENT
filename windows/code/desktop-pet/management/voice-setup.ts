@@ -1,4 +1,3 @@
-import { restrictPrivatePathSync } from '../core/platform-files.js';
 import { randomUUID } from 'node:crypto';
 import { open, unlink, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -109,7 +108,7 @@ export class VoiceSetupService {
   }
   private async sampleWrite(id:string,kind:'demo'|'activation',bytes:Uint8Array):Promise<void>{
     const file=join(this.options.directory,id+'-'+kind+'.audio'),h=await open(file,'wx',0o600);
-    try{restrictPrivatePathSync(file);await h.writeFile(bytes);await h.sync();}finally{await h.close();}
+    try{await h.writeFile(bytes);await h.sync();}finally{await h.close();}
   }
   private async run(input:{operationId:string;expectedRevision:number},signal:AbortSignal):Promise<VoiceSetupOperation>{
     return this.locked(input.operationId,async()=>{

@@ -1,11 +1,88 @@
+import { inputBudgetInfo, dialogueReservation } from '../providers/input-count.js';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { isQwenAudioTtsModel } from '../providers/qwen-audio-tts.js';
+import { validateLocalSpeech, type LocalSpeechConfiguration } from '../providers/local-speech.js';
+import { validateLocalDialogue, type LocalDialogueConfiguration } from '../providers/local-dialogue.js';
 
 export const TRIAL_CONFIG_VERSION = 1;
+const workbenchRuntimePaths = new Set([
+  'code/workbench/integration/t3-local-service.mjs',
+  'code/workbench/integration/t3-http-client.mjs',
+  'code/workbench/integration/t3-source.json',
+  'code/workbench/integration/t3-child-service.mjs',
+  'code/workbench/integration/t3-host.mjs',
+  'code/workbench/integration/t3-browser.mjs',
+  'code/workbench/integration/codex-source.json',
+  'code/workbench/integration/dsh-controller-source.json',
+  'code/workbench/integration/dsh-trial.mjs',
+  'code/workbench/integration/dsh-rich-memory-trial.mjs',
+  'code/workbench/integration/independent-blackboard/tool-output.mjs',
+  'code/workbench/integration/patches/0007-explicit-strict-policy-0160.patch',
+  'code/workbench/integration/patches/0022-native-input-repair.patch',
+  'code/workbench/integration/patches/0023-dsh-supervised-state-sync.patch',
+  'code/workbench/integration/codex-shared-connection.mjs',
+  'code/workbench/integration/codex-shared-stdio.mjs',
+]);
+/** Backend-only engine repairs also change these exact original graph inputs. */
+export const T3_ENGINE_BUNDLE_SUPPORT_PATHS = Object.freeze([
+  'artifacts/runtime/engine-pin-54/t3-runtime/.aaaagent-prepared.json',
+  'artifacts/runtime/engine-pin-54/t3-runtime/.aaaagent-native-sync-build.json',
+  'artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/bin.mjs.map',
+]);
+const reviewedT3ServerCompanions = new Set([
+  'claude-history-worker.mjs', 'claude-history-worker.mjs.map',
+  'claudeHistoryWorker-BULF_p_9.mjs', 'claudeHistoryWorker-BULF_p_9.mjs.map',
+  'claudeHistoryWorker-x3U5XeOc.mjs', 'claudeHistoryWorker-x3U5XeOc.mjs.map',
+  'claudeHistoryWorker-ChEliiLX.mjs', 'claudeHistoryWorker-ChEliiLX.mjs.map',
+  'claudeHistoryWorker-Bz1ZNa3x.mjs', 'claudeHistoryWorker-Bz1ZNa3x.mjs.map',
+  'claudeHistoryWorker-CNFf2jAS.mjs', 'claudeHistoryWorker-CNFf2jAS.mjs.map',
+].map(name => 'artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/' + name));
+export function isTrialRuntimePath(path: string): boolean {
+  if (path.split('/').some(part => !part || part === '.' || part === '..')) return false;
+  return /^artifacts\/runtime\/engine-pin-54\/t3-runtime\/apps\/web\/dist\/(?:assets\/[A-Za-z0-9._/-]+|\.vite\/manifest\.json|index\.html|aaa-native-read-build\.json|favicon(?:-16x16|-32x32)?\.(?:png|ico)|apple-touch-icon\.png|third-party-licenses\.json|manifest\.webmanifest)$/.test(path)
+    || T3_ENGINE_BUNDLE_SUPPORT_PATHS.includes(path) || reviewedT3ServerCompanions.has(path) || path.startsWith('code/desktop-pet/') || workbenchRuntimePaths.has(path) || path.startsWith('code/workbench/integration/engine-pins/')
+    || ['code/workbench/integration/dsh-patches/native-session-navigation.mjs', 'code/workbench/integration/dsh-patches/native-session-navigation-source.json'].includes(path)
+    || path === 'artifacts/runtime/engines-codex-0.160.0-dsh-0.2.0-rc.2-win32-x64/dsh/node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js'
+    || /^artifacts\/runtime\/t3-[a-f0-9]{8}-[a-f0-9]{12}\/\.aaaagent-prepared\.json$/.test(path)
+    || /^artifacts\/runtime\/codex-0\.156\.0-aarch64-apple-darwin-6f7bdad25693\/(?:\.aaaagent-codex\.json|codex-package\.json|(?:bin|codex-path|codex-resources)\/[a-zA-Z0-9._/-]+)$/.test(path)
+    || /^artifacts\/runtime\/codex-0\.160\.0-x86_64-pc-windows-msvc-7f7fbbc8d6fd\/(?:\.aaaagent-codex\.json|codex-package\.json|(?:bin|codex-path|codex-resources)\/[a-zA-Z0-9._/-]+)$/.test(path)
+    || /^artifacts\/runtime\/engines-codex-0\.160\.0-dsh-0\.2\.0-rc\.2-win32-x64\/(?:\.aaaagent-engine\.json|node\/node\.exe)$/.test(path)
+    || path === 'artifacts/runtime/engine-profile.json' || path === 'artifacts/runtime/engine-bindings/codex.cmd'
+    || path === 'artifacts/runtime/engine-bindings/dsh-presets.patch.yml'
+    || path === 'artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/bin.mjs'
+    || /^artifacts\/runtime\/toolchain\/node-v24\.13\.1-win-x64\/node\.exe$/.test(path);
+}
+
+/** Exact replaced engine or generated renderer pins only. No user data or product source paths. */
+export function assertRuntimeRetirements(current: Readonly<Record<string,string>>, nextPaths: readonly string[], retired: readonly string[]): void {
+  const marker = /^artifacts\/runtime\/t3-[a-f0-9]{8}-[a-f0-9]{12}\/\.aaaagent-prepared\.json$/;
+  const engineTransition = nextPaths.includes('artifacts/runtime/engine-profile.json') &&
+    nextPaths.includes('artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/bin.mjs') &&
+    nextPaths.includes('artifacts/runtime/engines-codex-0.160.0-dsh-0.2.0-rc.2-win32-x64/.aaaagent-engine.json');
+  const obsolete = (p: string) => marker.test(p) ||
+    p.startsWith('artifacts/runtime/codex-0.156.0-aarch64-apple-darwin-6f7bdad25693/') ||
+    p === 'artifacts/runtime/toolchain/node-v24.13.1-darwin-arm64/bin/node';
+  const nativeAsset = (p: string) => /^(?:code\/desktop-pet\/t3-native|artifacts\/runtime\/engine-pin-54\/t3-runtime)\/apps\/web\/dist\/assets\/[A-Za-z0-9._/-]+$/.test(p);
+  const rendererTransition = nextPaths.includes('code/desktop-pet/t3-native/apps/web/dist/aaa-native-read-build.json') &&
+    !!current['code/desktop-pet/t3-native/apps/web/dist/index.html'] && nextPaths.some(p => nativeAsset(p) && !current[p]);
+  const rendererRetirement = (p: string) => rendererTransition && nativeAsset(p);
+  const companionTransition = !!current['artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/bin.mjs'] &&
+    nextPaths.includes('artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/claude-history-worker.mjs') &&
+    nextPaths.some(p => reviewedT3ServerCompanions.has(p) && !current[p]);
+  const companionRetirement = (p: string) => companionTransition && reviewedT3ServerCompanions.has(p);
+  const engineRetired = Array.isArray(retired) ? retired.filter(p => !rendererRetirement(p) && !companionRetirement(p)) : [];
+  if (!Array.isArray(retired) || new Set(retired).size !== retired.length ||
+      retired.some(p => !current[p] || nextPaths.includes(p) || !isTrialRuntimePath(p) ||
+        !(rendererRetirement(p) || companionRetirement(p) || (engineTransition ? obsolete(p) : marker.test(p)))) ||
+      !engineTransition && (engineRetired.length > 1 || engineRetired.length > 0 && nextPaths.filter(p => marker.test(p) && !current[p]).length !== 1))
+    throw Error('Only exact replaced engine or renderer runtime pins may retire');
+}
 export type TrialOperation = 'asr' | 'dialogue' | 'memory_turn' | 'summary' | 'perception' | 'tts' | 'admission';
 export interface TrialModel {
+  readonly contextWindowTokens?: number;
+  readonly targetInputTokens?: number;
   readonly provider: 'deepseek' | 'dashscope';
   readonly model: string;
   readonly endpoint: string;
@@ -20,8 +97,14 @@ export interface TrialModel {
   readonly audioMicrosPerSecond?: number;
 }
 export interface TrialConfiguration {
+  readonly desktopHost?: 'electron' | 'macos';
+  /** Text mode never requests microphone capture or synthesized playback. */
+  readonly outputMode?: 'voice' | 'text';
+  /** Windows local speech override; cloud dialogue and memory settings stay independent. */
+  readonly localSpeech?: LocalSpeechConfiguration;
+  /** Opt-in foreground replies only; strict memory, summary and admission remain independently configured. */
+  readonly localDialogue?: LocalDialogueConfiguration;
   readonly version: 1;
-  readonly desktopHost?: 'macos' | 'electron';
   readonly product?: 'companion-v1';
   readonly phaseId: string;
   readonly purpose: 'smoke-text' | 'user-trial';
@@ -29,6 +112,8 @@ export interface TrialConfiguration {
   readonly projectRoot: string;
   readonly sourceRevision: string;
   readonly runtimeFiles: Readonly<Record<string, string>>;
+  /** Protected existing native Host launcher log. It contains no inline credential here. */
+  readonly workbenchDshWebLog?: string;
   readonly database: string;
   readonly budgetFile: string;
   readonly budgetBatchId: string;
@@ -68,7 +153,11 @@ export function validateTrialConfiguration(value: unknown): TrialConfiguration {
   if (c.product !== undefined && c.product !== 'companion-v1') fail('未知产品数据版本。');
   if (c.version !== 1 || !/^local-trial-[a-z0-9-]+$/.test(c.phaseId) || !/^[a-f0-9]{40}$/.test(c.sourceRevision)) fail('试用版本或阶段配置不完整。');
   for (const path of [c.projectRoot, c.database, c.budgetFile]) if (typeof path !== 'string' || !isAbsolute(path)) fail('试用文件位置尚未配置。');
-  const expectedBudget = resolve(c.projectRoot, '.local/model-evaluation/budget.json');
+  if (c.workbenchDshWebLog !== undefined && (typeof c.workbenchDshWebLog !== 'string' ||
+      !isAbsolute(c.workbenchDshWebLog) || resolve(c.workbenchDshWebLog) !== c.workbenchDshWebLog ||
+      c.workbenchDshWebLog.includes('\0') || !c.runtimeFiles?.['code/workbench/integration/dsh-trial.mjs'] ||
+      !c.runtimeFiles?.['code/workbench/integration/dsh-controller-source.json'])) fail('原生 DSH Host 位置与候选版本尚未固定。');
+  const expectedBudget = resolve(c.projectRoot, process.platform === 'win32' ? '.local/model-evaluation/budget.json' : 'artifacts/W0-I/model-evaluation/budget.json');
   const unlimited=c.budgetMode==='unlimited';
   if (resolve(c.budgetFile) !== expectedBudget || !c.budgetBatchId || (unlimited ? c.limitMicros!==null||c.purpose!=='user-trial' : ![20_000_000,60_000_000].includes(c.limitMicros??-1)) || (c.budgetMode!==undefined&&!['bounded','unlimited'].includes(c.budgetMode))) fail('记账模式与共享账目配置不一致。');
   // Historical cost-review metadata is retained, but is not an unlimited-mode admission gate.
@@ -77,15 +166,15 @@ export function validateTrialConfiguration(value: unknown): TrialConfiguration {
       || new Set(c.reviewedUnknownCosts.map(r => r.operationId)).size !== c.reviewedUnknownCosts.length) fail('未知费用的保守预留复核不完整。');
     for (const review of c.reviewedUnknownCosts) {
       const old = review.operationId === 'W0-I:B-DANIA-MINIMAX-AUDITION-01:clone-demo' && review.model === 'MiniMax/speech-2.8-hd'
-        && review.reservedMicros === 19_600 && review.auditFile === resolve(c.projectRoot, '.local/minimax-default-01/budget-bound/audit.json');
+        && review.reservedMicros === 19_600 && review.auditFile === resolve(c.projectRoot, 'artifacts/W0-I/minimax-default-01/budget-bound/audit.json');
       const part = ['W0-I:B-XIAOLING-FORGETTING-01:asr:1','W0-I:B-XIAOLING-FORGETTING-01:asr:2'].indexOf(review.operationId) + 1;
       const asr = part > 0 && review.model === 'qwen3-asr-flash-2026-02-10' && review.reservedMicros === 36_960
-        && review.auditFile === resolve(c.projectRoot, `.local/xiaoling-forgetting-01/budget-bound/part-${part}.json`);
+        && review.auditFile === resolve(c.projectRoot, `artifacts/W0-I/xiaoling-forgetting-01/budget-bound/part-${part}.json`);
       const prefix = `W0-I:${c.phaseId}:memory_turn:`;
       const id = typeof review.operationId === 'string' && review.operationId.startsWith(prefix) ? review.operationId.slice(prefix.length) : '';
       const memory = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)
         && review.model === c.models?.memory_turn?.model && review.reservedMicros === c.models?.memory_turn?.reservationMicros
-        && review.auditFile === resolve(c.projectRoot, `.local/model-evaluation/unknown-cost-reviews/${id}.json`);
+        && review.auditFile === resolve(c.projectRoot, `artifacts/W0-I/model-evaluation/unknown-cost-reviews/${id}.json`);
       if ((!old && !asr && !memory) || !/^[a-f0-9]{64}$/.test(review.auditSha256)) fail('未知费用复核超出已登记的单笔边界。');
     }
   }
@@ -99,13 +188,16 @@ export function validateTrialConfiguration(value: unknown): TrialConfiguration {
   }
   if (c.purpose === 'smoke-text' && c.operationLimits.perception !== 0) fail('无声文字阶段不能调用感知。');
   if (c.purpose === 'smoke-text' && (typeof c.smokeInput !== 'string' || !c.smokeInput.trim())) fail('无声文字阶段缺少固定的合成输入。');
-  if (c.desktopHost !== undefined && !['macos', 'electron'].includes(c.desktopHost)) fail('Unknown desktop host.');
+  if (c.desktopHost !== undefined && !['electron', 'macos'].includes(c.desktopHost)) fail('桌面外壳配置无效。');
+  if (c.outputMode !== undefined && c.outputMode !== 'voice' && c.outputMode !== 'text') fail('对话输出模式无效。');
   const required = ['dist/app/trial-backend.js', 'dist/app/trial-launcher.js', 'desktop/build/renderer.js',
-    ...(c.desktopHost === 'electron' ? ['desktop/electron/main.mjs', 'desktop/electron/preload.cjs', 'desktop/electron/transport.mjs', 'desktop/electron/layout.mjs', 'desktop/electron/assets.mjs', 'tools/management-url.mjs'] : ['desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'])];
+    ...(process.platform === 'win32' || c.desktopHost === 'electron'
+      ? ['desktop/electron/main.mjs', 'desktop/electron/preload.cjs', 'desktop/electron/transport.mjs', 'desktop/electron/layout.mjs', 'desktop/electron/assets.mjs', 'tools/management-url.mjs']
+      : ['desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'])];
   if (!c.runtimeFiles || typeof c.runtimeFiles !== 'object' || Array.isArray(c.runtimeFiles)
     || required.some(path => !c.runtimeFiles[`code/desktop-pet/${path}`])) fail('试用构建版本尚未登记。');
   for (const [path, digest] of Object.entries(c.runtimeFiles)) {
-    if (!path.startsWith('code/desktop-pet/') || path.includes('\\') || path.includes(':') || path.split('/').some(part => !part || part === '..' || part === '.')
+    if (path.includes('\\') || path.includes(':') || path.split('/').some(part => !part || part === '.' || part === '..') || !isTrialRuntimePath(path)
       || !/^[a-f0-9]{64}$/.test(digest)) fail('试用构建指纹无效。');
   }
   if (!c.memory || c.memory.mode !== 'strict' || c.memory.scheduling !== 'semantic-admission' || !positive(c.memory.timeoutMs)) fail('严格记忆与语义准入尚未接通，不能回退旧维护器。');
@@ -126,20 +218,24 @@ export function validateTrialConfiguration(value: unknown): TrialConfiguration {
     if (['asr', 'perception', 'tts'].includes(operation) && m.provider !== 'dashscope') fail('感知和语音需要已登记的DashScope配置。');
     if (['dialogue', 'summary', 'admission'].includes(operation) && m.provider === 'deepseek'
       && (m.model !== 'deepseek-flash' || m.inputMicrosPerToken !== 2 || m.outputMicrosPerToken !== 8
-        || m.inputTokenLimit > 32768 || m.outputTokenLimit > 393216)) fail('DeepSeek文本需要当前登记的Flash型号和保守计费边界。');
+        || m.inputTokenLimit > (operation === 'dialogue' ? 1048576 : 32768) || m.outputTokenLimit > 393216
+        || m.contextWindowTokens !== undefined && m.contextWindowTokens !== 1048576)) fail('DeepSeek文本需要当前登记的Flash型号和保守计费边界。');
     if (![m.inputMicrosPerToken, m.outputMicrosPerToken].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) fail('模型计费口径未配置。');
     if (operation === 'asr' && (m.model !== 'qwen3-asr-flash-2026-02-10' || m.audioMicrosPerSecond !== 220 || m.inputMicrosPerToken !== 0 || m.outputMicrosPerToken !== 0)) fail('语音转写型号与音频时长费率未登记。');
     if (operation !== 'tts' && operation !== 'asr') {
       if (!positive(m.inputTokenLimit) || !positive(m.outputTokenLimit)) fail('模型输入输出硬上限未登记。');
-      const maximum = Math.ceil(m.inputTokenLimit * m.inputMicrosPerToken + m.outputTokenLimit * m.outputMicrosPerToken);
+      const maximum = operation==='dialogue' ? dialogueReservation(m) : Math.ceil(m.inputTokenLimit * m.inputMicrosPerToken + m.outputTokenLimit * m.outputMicrosPerToken);
       if (!Number.isSafeInteger(maximum)) fail('费用估计数值无效。');
-      if (!unlimited&&m.reservationMicros < maximum) fail('调用预留不足以覆盖登记的最坏费用。');
+      if (operation==='dialogue')inputBudgetInfo(m);
+      if ((!unlimited||operation==='dialogue')&&m.reservationMicros < maximum) fail('调用预留不足以覆盖登记的最坏费用。');
     }
     if (operation === 'tts' && !(typeof m.characterMicros === 'number' && Number.isFinite(m.characterMicros) && m.characterMicros > 0)) fail('语音计费口径未配置。');
     if (operation === 'tts' && m.model.startsWith('MiniMax/') && !((m.model === 'MiniMax/speech-2.8-turbo' && m.characterMicros === 200) || (m.model === 'MiniMax/speech-2.8-hd' && m.characterMicros === 350)))
       fail('MiniMax 仅登记 Turbo/HD 及各自字符费率。');
     if (m.thinking !== undefined && (operation !== 'memory_turn' || m.thinking !== 'high')) fail('模型思考配置不受当前适配器支持。');
   }
+  if (c.localSpeech !== undefined) validateLocalSpeech(c.localSpeech);
+  if (c.localDialogue !== undefined) validateLocalDialogue(c.localDialogue);
   return structuredClone(c);
 }
 

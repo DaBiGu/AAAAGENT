@@ -1,6 +1,40 @@
 import { scopeEquals } from './view-state.js';
 import type { CharacterId, TurnScope } from '../contracts/index.js';
-type Row = { id: number; kind: 'user' | 'assistant'; text: string; status?: 'sending' | 'sent' | 'failed'; scope?: TurnScope; voice?: boolean; deferred?: boolean; routed?: boolean; transcribed?: boolean; sourceDraftId?:string; sourceLabel?:string };
+import { isProductCharacter } from '../contracts/character.js';
+import { COMPANION_CHAT_HISTORY_VERSION, COMPANION_CHAT_HISTORY_MAX_ROWS, COMPANION_CHAT_HISTORY_MAX_TEXT_BYTES, type CompanionChatHistoryRow } from '../contracts/companion-chat-history.js';
+type Row = { id: number; kind: 'user' | 'assistant'; text: string; status?: 'sending' | 'sent' | 'failed'; scope?: TurnScope; voice?: boolean; deferred?: boolean; routed?: boolean; transcribed?: boolean; sourceDraftId?:string; sourceLabel?:string; recordId?:string; recordVersion?:number; sourceScope?:TurnScope|null; createdAt?:string; logicalOrder?:number; restored?:boolean };
+const identifier = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 200 && !value.includes('\0');
+function historyRows(role: CharacterId, value: unknown): CompanionChatHistoryRow[] | null {
+  if (!isProductCharacter(role) || !value || typeof value !== 'object') return null;
+  const history = value as Record<string, unknown>;
+  if (history.version !== COMPANION_CHAT_HISTORY_VERSION || history.characterId !== role || history.status !== 'ready' ||
+    typeof history.hasMore !== 'boolean' || !Array.isArray(history.rows) || history.rows.length > COMPANION_CHAT_HISTORY_MAX_ROWS) return null;
+  const rows: CompanionChatHistoryRow[] = [], ids = new Set<string>();
+  let bytes = 0, order = 0;
+  for (const value of history.rows) {
+    if (!value || typeof value !== 'object') return null;
+    const row = value as Record<string, unknown>, source = row.sourceScope;
+    if (row.characterId !== role || !identifier(row.recordId) || ids.has(row.recordId) ||
+      !Number.isSafeInteger(row.recordVersion) || Number(row.recordVersion) < 1 || (row.role !== 'user' && row.role !== 'assistant') ||
+      typeof row.text !== 'string' || !row.text.trim() || row.text.includes('\0') ||
+      typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt)) ||
+      !Number.isSafeInteger(row.logicalOrder) || Number(row.logicalOrder) < 1 || Number(row.logicalOrder) < order) return null;
+    let scope: TurnScope | null = null;
+    if (source !== null) {
+      if (!source || typeof source !== 'object') return null;
+      const s = source as Record<string, unknown>;
+      if (s.characterId !== role || !identifier(s.sessionId) || !identifier(s.turnId) ||
+        !Number.isSafeInteger(s.generation) || Number(s.generation) < 0) return null;
+      scope = { characterId: role, sessionId: s.sessionId, turnId: s.turnId, generation: Number(s.generation) };
+    }
+    bytes += new TextEncoder().encode(row.text).length;
+    if (bytes > COMPANION_CHAT_HISTORY_MAX_TEXT_BYTES) return null;
+    order = Number(row.logicalOrder); ids.add(row.recordId);
+    rows.push({ characterId: role, recordId: row.recordId, recordVersion: Number(row.recordVersion), role: row.role as 'user' | 'assistant',
+      text: row.text, createdAt: row.createdAt, logicalOrder: order, sourceScope: scope });
+  }
+  return rows;
+}
 /** Ephemeral display only: both routes retain verbatim user input. No backend memory writes. */
 export class DesktopChatLog {
   revision = 0;
@@ -13,6 +47,35 @@ export class DesktopChatLog {
   draft(role: CharacterId): string { return this.drafts.get(role) ?? ''; }
   setDraft(role: CharacterId, text: string): void { this.drafts.set(role, text); }
   pending(role: CharacterId): boolean { return this.waiting.has(role); }
+  /** Restore display records atomically; keep their original identities separate from the live session. */
+  restoreHistory(role: CharacterId, history: unknown): boolean {
+    const saved = historyRows(role, history);
+    if (!saved) return false;
+    const current = this.rows(role), restored: Row[] = [], updates: Array<{ row: Row; saved: CompanionChatHistoryRow }> = [];
+    for (const value of saved) {
+      const byRecord = current.find(row => row.recordId === value.recordId);
+      if (byRecord && (byRecord.kind !== value.role || value.recordVersion < byRecord.recordVersion! ||
+        value.recordVersion === byRecord.recordVersion && (byRecord.text !== value.text || byRecord.createdAt !== value.createdAt || byRecord.logicalOrder !== value.logicalOrder ||
+          JSON.stringify(byRecord.sourceScope) !== JSON.stringify(value.sourceScope)))) return false;
+      const live = value.sourceScope ? current.find(row => !row.recordId && row.kind === value.role &&
+        scopeEquals(row.scope ?? null, value.sourceScope!) && row.text === value.text && !restored.includes(row)) : undefined;
+      const row = byRecord ?? live ?? { id: 0, kind: value.role, text: value.text, restored: true };
+      updates.push({ row, saved: value }); restored.push(row);
+    }
+    // Retain live and pending rows. A valid fresh snapshot replaces only previously restored display rows.
+    const next = [...restored, ...current.filter(row => !row.restored && !restored.includes(row))].slice(-COMPANION_CHAT_HISTORY_MAX_ROWS);
+    let changed = next.length !== current.length || next.some((row, index) => row !== current[index]);
+    for (const { row, saved } of updates) {
+      if (!row.id) row.id = ++this.nextId;
+      changed ||= row.recordId !== saved.recordId || row.recordVersion !== saved.recordVersion || row.text !== saved.text ||
+        row.createdAt !== saved.createdAt || row.logicalOrder !== saved.logicalOrder || JSON.stringify(row.sourceScope) !== JSON.stringify(saved.sourceScope);
+      row.recordId = saved.recordId; row.recordVersion = saved.recordVersion; row.sourceScope = saved.sourceScope;
+      row.createdAt = saved.createdAt; row.logicalOrder = saved.logicalOrder; row.text = saved.text;
+      if (row.restored) { if (saved.sourceScope) row.scope = saved.sourceScope; else delete row.scope; }
+    }
+    if (changed) { this.logs.set(role, next); this.revision++; }
+    return true;
+  }
   submit(role: CharacterId, text: string, deferred = false): boolean {
     if (this.pending(role)) return false;
     const row: Row = { id: ++this.nextId, kind: 'user', text, status: 'sending', deferred };

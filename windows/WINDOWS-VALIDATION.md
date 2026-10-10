@@ -1,5 +1,53 @@
 # Windows validation
 
+## 2026-10-10 Windows 0.3.0-dev.1 — unpublished
+
+最新代码、视频/Live2D、3 ASR + 3 TTS、延迟及资源采样见 [本次适配与验证](docs/WINDOWS-20261010.md)。本次实测与下方历史结果分开记录；旧段落的“尚未集成”描述仅对应当时版本。
+
+<a id="2026-10-01-local-speech"></a>
+## 2026-10-01 Local speech — 0.2.0-dev.1, unpublished local candidate
+
+Tested on native **Windows 11 x64 / Ryzen 7 9700X / Node 22.14.0 / sherpa-onnx-node 1.13.8**, 31 GiB RAM and RTX 5070 Ti 16 GiB, driver 591.86. SenseVoice, Paraformer, Whisper and Kokoro run on CPU. GPT-SoVITS and Qwen run on native Windows CUDA, without WSL. The existing pet stays at 0.1.2 and uses cloud dialogue; its UI/provider schema has not yet been connected to this separate gateway.
+
+This candidate is local and awaits human review. The earlier preparation commit was reverted on GitHub; no new candidate was published.
+
+| Real model | Observed result |
+| --- | --- |
+| SenseVoice Small int8 | Official 5.592 s Chinese recording and all 9 TTS clips transcribed. Warm short requests 40–64 ms. Official sample says `开饭时间早上9点至下午5点。`, with a homophone error for `开放`. |
+| Paraformer int8 | Official Chinese recording and all 9 TTS clips transcribed. Warm short requests 34–45 ms. One GPT clip says `本店语音` for `本地语音`. |
+| Whisper-small int8 | Official recording and all 9 TTS clips transcribed after fixing UTF-8 byte loss. Warm short requests 573–899 ms. May use traditional Chinese; one Qwen clip says `本地語言` for `本地语音`. |
+| GPT-SoVITS v2Pro stock | 3 Chinese sentences, 32 kHz mono PCM16 WAV, 3.90–4.80 s audio. Warm HTTP synthesis 1056–1598 ms. First reference processing/synthesis took 35323 ms. Bundled Python 3.9.13 / Torch 2.7.0+cu128. |
+| Kokoro 82M int8 voice 3 | 3 sentences, 24 kHz mono PCM16 WAV, 3.358–4.752 s audio. HTTP synthesis 2174–3300 ms. |
+| Qwen3-TTS 0.6B Base | 3 sentences, 24 kHz mono PCM16 WAV, 3.04–4.56 s audio. HTTP synthesis 6058–8209 ms. Python 3.13.5 / Torch and Torchaudio 2.8.0+cu128 / qwen-tts 0.1.1 / Transformers 4.57.3, bfloat16 + SDPA. |
+| Existing cloud dialogue bridge | One real local ASR → DeepSeek `deepseek-flash` → local Kokoro check returned `收到，本地语音测试正常。`. Cloud request 624 ms, 41 input + 7 output tokens. Local dialogue stayed disabled. |
+
+Three phrases produced **9 real non-silent WAV files**, each recognized by all three ASR models: **27 round trips**, plus one official recording through each recognizer. All returned successfully. This is a small synthetic sample, not a speech-accuracy benchmark. GPT/Qwen used the existing 3.36 s Kokoro clip as a synthetic reference, with stock pretrained weights; the user's fine-tuned voice is not covered.
+
+### Bug found and fixed
+
+Whisper originally returned `你好,今天我们一起本地音。` for `你好，今天我们一起测试本地语音。`. Its result contained empty BPE tokens at the missing characters. Full-precision weights and different tail padding reproduced the same problem.
+
+In [sherpa 1.13.8's Whisper conversion](https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/csrc/offline-recognizer-whisper-impl.h), normalization runs on each byte token. The [normalizer](https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/csrc/offline-recognizer-impl.cc) removes incomplete UTF-8 sequences. Chinese characters can span multiple BPE tokens, so this deletes correctly predicted bytes before concatenation. A [matching upstream report](https://github.com/k2-fsa/sherpa-onnx/issues/3320) exists.
+
+The Windows adapter creates a derived ASCII byte vocabulary with the same token IDs and decodes joined bytes in JavaScript. Original weights and token files stay unchanged. After the fix, the same clip returns `你好,今天我們一起測試本地語音。`; the previously missing words in all three phrases are retained. Simplified/traditional spelling and ordinary recognition errors remain visible in the raw results.
+
+Whisper's native 2950-frame cutoff could also silently truncate the end of a nominal 30-second clip. The adapter caps each request at 29 seconds and returns an actionable error for longer audio; clients should segment with VAD. A real 30-second gateway upload returned HTTP 400 in 24 ms, with no native decoding. Real text-format requests through all three ASR routes also passed after the final restart.
+
+| Additional check | Result |
+| --- | --- |
+| Native Windows unit/protocol regressions | 23 passed, 0 failed: aliases, upstream credentials, formats, bounds, native cancellation, GPT global-weight serialization/timeouts and split UTF-8 bytes. Mock HTTP cases are separate from real inference. |
+| Qwen real invalid requests | 10 rejected with HTTP 400: reference paths/URLs, weights, unknown voice, streaming, MP3, speed, long/blank input. |
+| Qwen real client cancellation | GPU lock remained busy after disconnect, a second request returned 503, and the lock cleared after actual inference completed. |
+| Installer checks | All model downloads passed pinned length/SHA256 checks. ASR and Qwen preparation reruns verified files; GPT archive paths/extraction and critical-file manifest rerun verified. CPU installer corruption recovery passed in an isolated directory. |
+| Current gateway | `127.0.0.1:19380/v1`, version `0.2.0-dev.1`, 3 ASR + 3 TTS routes. Doctor reports model files and both native GPU APIs ready. |
+| MiniMax native cloud speech | Protocol tests passed for hex audio and HTTP-200 errors. Default disabled; no paid speech call. |
+
+The original WAV generation occurred at **2026-10-01 01:45 China time**. The final ASR replay at **02:01** verified every WAV's SHA256 and reran all 27 transcriptions with the fix. TTS timings belong to the original generation. Local review files are under `windows/.local/local-models/reports/speech-matrix-2026-09-30T18-01-47-984Z/`; UTC directory timestamps differ from China local time.
+
+Other local evidence: `reports/asr-native-validation-2026-10-01.json`, `reports/whisper-quality-comparison.json`, `reports/whisper-utf8-fix-validation.json`, `qwen-validation.json`, `qwen-protocol-validation.json`, and `cloud-speech-validation.json`. These files, audio, weights, caches and environments are ignored by Git.
+
+Reproduce using the commands in [the module guide](local-models/README.md#复测与审核). The user's fine-tuned voice, physical microphone/speaker playback and existing pet integration still need separate evaluation. Mac implementation and Mac-only documentation were not changed. Publishing requires human review of this local candidate.
+
 <a id="2026-09-19-windows-update"></a>
 ## 2026-09-19 Windows update — 0.1.2
 

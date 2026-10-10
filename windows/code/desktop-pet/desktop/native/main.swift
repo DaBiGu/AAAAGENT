@@ -145,11 +145,14 @@ final class ManagementPageLauncher {
     private let timeout: TimeInterval
     init(timeout: TimeInterval = 5) { self.timeout = timeout }
     @discardableResult
-    func open(desktopRoot: URL, node: String, completion: @escaping (Bool) -> Void) -> Bool {
+    func open(desktopRoot: URL, node: String, workbench: [String:Any]? = nil, completion: @escaping (Bool) -> Void) -> Bool {
         guard process == nil else { return false }
         let child = Process()
         child.executableURL = URL(fileURLWithPath: node)
-        child.arguments = [desktopRoot.deletingLastPathComponent().appendingPathComponent("tools/start-management.mjs").path]
+        child.arguments = [desktopRoot.deletingLastPathComponent().appendingPathComponent(workbench == nil ? "tools/start-management.mjs" : "tools/start-workbench.mjs").path]
+        if let workbench, let encoded = try? JSONSerialization.data(withJSONObject:workbench), let text = String(data:encoded,encoding:.utf8) {
+            child.arguments?.append(text)
+        }
         child.currentDirectoryURL = desktopRoot.deletingLastPathComponent()
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = FileHandle.nullDevice; child.standardError = FileHandle.nullDevice
@@ -218,10 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     var web: WKWebView!
     var viewportClip: NSView!
     var modelScreenFrame: CGRect?
+    var collapsedScreenFrame: CGRect?
     let connection = BackendConnection()
     let managementLauncher = ManagementPageLauncher()
     let displayPreferences = PetDisplayPreferences()
     var displayOpen = false
+    var displayCollapsed = false
     var applyingDisplay = false
     var pageReady = false
     var sourceRoot: URL!
@@ -343,6 +348,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
                 if let mode = value["mode"] as? String { displayPreferences.setMode(mode); applyDisplay() }
             case "resize_model":
                 if let phase = value["phase"] as? String { displayPreferences.resize(phase, width: value["width"] as? Double); applyDisplay() }
+            case "set_collapsed":
+                if let collapsed = value["collapsed"] as? Bool, collapsed != displayCollapsed {
+                    let active = displayCollapsed ? (collapsedScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
+                    displayPreferences.resize("cancel",width:nil)
+                    if let open = value["open"] as? Bool { displayOpen = open }
+                    displayCollapsed = collapsed
+                    applyDisplay(proposedModelTop:CGPoint(x:active.midX,y:active.maxY))
+                    diagnostic("pet-collapsed",["collapsed":collapsed,"width":panel.frame.width,"height":panel.frame.height])
+                }
             case "set_hotkey":
                 if let code = value["code"] as? String {
                     let pattern = "^(Arrow(Up|Down|Left|Right)|Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|20)|Space|Enter|Backspace|Delete|Home|End|PageUp|PageDown|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Backquote)$"
@@ -352,6 +366,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
                 deliver("hotkeyConfig", ["code": UserDefaults.standard.string(forKey: "voiceHotkeyCode") as Any? ?? NSNull()])
             case "reconnect":
                 if option("--backend") != nil && ["failed", "disconnected"].contains(connection.state) { startTransport() }
+            case "open_workbench":
+                var target = value
+                target.removeValue(forKey:"type")
+                let opening = managementLauncher.open(desktopRoot:sourceRoot,node:option("--node") ?? "/opt/homebrew/bin/node",workbench:target) { [weak self] ok in
+                    self?.deliver("workbenchOpenResult",["ok":ok])
+                }
+                if !opening { deliver("workbenchOpenResult",["ok":false]) }
             case "open_management":
                 managementLauncher.open(desktopRoot:sourceRoot,node:option("--node") ?? "/opt/homebrew/bin/node") { [weak self] ok in
                     self?.deliver("managementResult",["ok":ok])
@@ -361,12 +382,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             case "panel":
                 let open = value["open"] as? Bool ?? false
                 displayOpen = open; displayPreferences.resize("cancel", width: nil); applyDisplay()
-                if open { NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web) }
+                if open && !displayCollapsed { NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web) }
                 diagnostic("panel", ["open": open, "isKey": panel.isKeyWindow])
             case "focus": NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(web)
             case "drag":
                 if let dx = value["dx"] as? Double, let dy = value["dy"] as? Double, dx.isFinite, dy.isFinite {
-                    let model = modelScreenFrame ?? panel.frame
+                    let model = displayCollapsed ? (collapsedScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
                     applyDisplay(proposedModelTop:CGPoint(x:model.midX+dx,y:model.maxY-dy))
                 }
             case "quit": NSApp.terminate(nil)
@@ -384,13 +405,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     func applyDisplay(proposedModelTop: CGPoint? = nil) {
         guard panel != nil, !applyingDisplay else { return }
         applyingDisplay = true; defer { applyingDisplay = false }
-        let model = modelScreenFrame ?? panel.frame
+        let model = displayCollapsed ? (collapsedScreenFrame ?? modelScreenFrame ?? panel.frame) : (modelScreenFrame ?? panel.frame)
         let anchor = proposedModelTop ?? CGPoint(x:model.midX,y:model.maxY)
         let proposedModel = CGRect(x:anchor.x-model.width/2,y:anchor.y-model.height,width:model.width,height:model.height)
         let screen = NSScreen.screens.max { $0.visibleFrame.intersection(proposedModel).area < $1.visibleFrame.intersection(proposedModel).area }
         guard let visible = screen?.visibleFrame else { return }
-        let layout = PetDisplayLayout.fit(width:displayPreferences.width,open:displayOpen,screen:visible,anchor:anchor)
-        modelScreenFrame = layout.modelFrame
+        let layout = PetDisplayLayout.fit(width:displayPreferences.width,open:displayOpen,screen:visible,anchor:anchor,collapsed:displayCollapsed)
+        if displayCollapsed { collapsedScreenFrame = layout.ballFrame }
+        else { modelScreenFrame = layout.modelFrame; collapsedScreenFrame = nil }
         // The WK viewport stays the size of its screen. Only its clipped native
         // origin changes, in the same non-animated transaction as the window.
         // Opening chat cannot resize/clear a WebGL drawing buffer between frames.

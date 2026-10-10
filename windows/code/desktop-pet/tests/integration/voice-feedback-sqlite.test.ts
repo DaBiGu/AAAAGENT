@@ -16,7 +16,7 @@ import {JsonDialogueProvider} from '../../providers/qwen-dialogue.js';
 import {ProviderTransport} from '../../providers/transport.js';
 import type {MemoryTurnPlan,MemoryTurnInput} from '../../contracts/memory-lifecycle.js';
 
-function fixture(){const parent=resolve('../../.local/voice-feedback-03/tmp');mkdirSync(parent,{recursive:true});const dir=mkdtempSync(join(parent,'sqlite-'));const store=new SqliteMemoryStore({filename:join(dir,'state.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai')});return{store,close(){store.close();rmSync(dir,{recursive:true,force:true});}};}
+function fixture(){const parent=resolve('../../artifacts/W0-I/voice-feedback-03/tmp');mkdirSync(parent,{recursive:true});const dir=mkdtempSync(join(parent,'sqlite-'));const store=new SqliteMemoryStore({filename:join(dir,'state.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai')});return{store,close(){store.close();rmSync(dir,{recursive:true,force:true});}};}
 const expression={emotion:'neutral' as const,intensity:0,delivery:'自然',gesture:null};
 test('an old strict ticket cannot omit disposition for a subsequently saved dependent reply',async()=>{
  const f=fixture(),store=f.store,scope=seedScope(),gate=deferred<MemoryTurnPlan>();let input!:MemoryTurnInput;

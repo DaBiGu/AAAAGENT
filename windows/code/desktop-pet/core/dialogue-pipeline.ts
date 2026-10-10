@@ -115,6 +115,7 @@ export class DialoguePipeline {
         if (memoryOutcome.status === 'applied' && (memoryOutcome.results.some(result => result.status !== 'applied' || result.characterId !== scope.characterId) || !memoryOutcome.retrievalInvalidated || !memoryOutcome.affectedIds.length)) throw new Error('记忆提交结果不完整，尚不能确认。');
         if (memoryOutcome.status === 'needs_clarification' && (memoryOutcome.results.length || memoryOutcome.affectedIds.length || memoryOutcome.retrievalInvalidated)) throw new Error('澄清请求不能包含已执行的变更。');
       }
+      this.ports.dialogue.prepare?.({scope,text,...(memoryOutcome?{memoryOutcome}:{}),...(memoryPending?{memoryPending}:{})});
       const context = independent
         ? await background!.foregroundContext(scope, userMessage.id, text, perception, signal)
         : await this.ports.memory.context(scope, text, perception, signal);

@@ -10,7 +10,7 @@ import { evaluateOmniSevenEmotion, omniEvaluationOrder, omniEvaluationMetrics, O
   type OmniEvaluationManifest, type OmniEvaluationOptions, type OmniCaseRecord } from '../../app/omni-seven-emotion-evaluation.js';
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 async function fixture(t: TestContext) {
-  const parent = resolve('../../.local/ptt-onset-01/test-runs'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W2/ptt-onset-01/test-runs'); await mkdir(parent, { recursive: true });
   const dir = await mkdtemp(join(parent, 'case-')); t.after(() => rm(dir, { recursive: true, force: true }));
   const source = Uint8Array.of(1, 2, 3, 4), audio = pcm16Wav(new Float32Array(1600).fill(.1), 16000), image = Uint8Array.of(255, 216, 0, 0, 255, 217);
   await writeFile(join(dir, 'source.mp4'), source); await writeFile(join(dir, 'audio.wav'), audio); await writeFile(join(dir, 'image.jpg'), image);

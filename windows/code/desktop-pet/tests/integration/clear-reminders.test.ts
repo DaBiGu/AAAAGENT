@@ -17,7 +17,7 @@ const scope:TurnScope={characterId:'companion',sessionId:'s',turnId:'t',generati
 const screenshot='取消掉待核对两项的这个案。';
 const tick=()=>new Promise<void>(r=>setImmediate(r));
 async function fixture(t:TestContext,draftText?:string){
- const parent=resolve('../../.local/clear-reminders-24/tmp');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'clear-'));
+ const parent=resolve('../../artifacts/W0-I/clear-reminders-24/tmp');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'clear-'));
  const file=join(root,'harness-relay.sqlite'),receipts=new ForwardReceipts(file),projects=new SqliteProjectIndex(join(root,'project-index.sqlite'));const states:DesktopWorkState[]=[],notices:WorkStatusNotice[]=[];
  let models=0,sends=0,observes=0;const ids:string[]=[];
  for(const phase of ['unknown','completed','unavailable','unknown','awaiting_confirmation'] as const){const row=receipts.create({text:'Original synthetic '+phase,executor:'codex'});receipts.mutate(row.id,r=>{r.phase=phase;if(phase==='unknown'||phase==='completed')r.confirmedAt='now';if(phase==='completed')r.result='Original result';});if(phase==='unknown')ids.push(row.id);}

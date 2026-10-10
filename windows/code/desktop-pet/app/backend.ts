@@ -24,10 +24,10 @@ export async function startBackend(environment: NodeJS.ProcessEnv = process.env)
   const section = source.match(/^## Qwen \/ DashScope\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1];
   const keys = section?.match(/sk-[A-Za-z0-9_-]+/g) ?? [];
   if (keys.length !== 1) throw new Error('Credential section is ambiguous');
-  const authorizer = new IntegratedEvaluationAuthorizer(`${projectRoot}/.local/model-evaluation`);
+  const authorizer = new IntegratedEvaluationAuthorizer(`${projectRoot}/artifacts/W0-I/model-evaluation`);
   const apiKey = () => keys[0]!;
   const modelConfig = (model: string) => ({ endpoint: CHAT_ENDPOINT, model, apiKey, authorizer });
-  const evidenceRoot = `${projectRoot}/.local/model-evaluation`;
+  const evidenceRoot = `${projectRoot}/artifacts/W0-I/model-evaluation`;
   await mkdir(evidenceRoot, { recursive: true });
   // A second desktop backend cannot become another paid evaluation writer.
   // After a crash, inspect the recorded PID before manually clearing this file.

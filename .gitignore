@@ -43,3 +43,9 @@ id_ed25519*
 *.m4a
 *.mp4
 *.zip
+
+# Purchased Live2D resources are not redistributable on either platform.
+**/desktop/assets/jellyfish/
+
+# Apple device artwork has no established redistribution license (see adjacent NOTICE).
+**/components/device/models/*.glb

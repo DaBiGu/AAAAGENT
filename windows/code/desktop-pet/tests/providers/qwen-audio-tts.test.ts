@@ -177,10 +177,10 @@ test('caller mutation while awaiting audio cannot rewrite the captured turn or e
 });
 
 async function registered(t: TestContext) {
-  const parent = resolve('../../.local/dania-voice-clone-01/test-runs'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W2/dania-voice-clone-01/test-runs'); await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(join(parent, 'tts-binding-')); t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, 'registered-voices.json'), registry = await RegisteredVoiceStore.open(file);
-  const record: RegisteredVoice = { voiceId: 'dania-synthetic-001', label: 'example-voice 合成记录', provider: 'dashscope',
+  const record: RegisteredVoice = { voiceId: 'dania-synthetic-001', label: 'Dania 合成记录', provider: 'dashscope',
     endpoint: QWEN_AUDIO_TTS_ENDPOINT, targetModel: QWEN_AUDIO_TTS_PLUS_MODEL, credentialRef: 'dashscope-123456abcdef',
     referenceSha256: 'a'.repeat(64), createdAt: '2026-09-11T00:00:00.000Z' };
   await registry.register(0, record);

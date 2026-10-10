@@ -46,7 +46,7 @@ test('A12: deletion clears real search, summaries, caches and source retrieval a
 test('SQLite rollback prevents partial merge/FTS changes when a native write fails',t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();seed(store);
   store.apply(change({type:'add',id:'second',text:'海风公司工作',sourceIds:['raw']},'second'));
-  const db=new Database(f.filename);f.track(db);
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());
   db.exec("CREATE TRIGGER test_failure BEFORE INSERT ON memory_records WHEN new.id='boom' BEGIN SELECT RAISE(ABORT,'injected_native_failure'); END");
   assert.throws(()=>store.apply(change({type:'merge',targets:[{id:'job',expectedVersion:1},{id:'second',expectedVersion:1}],replacement:{id:'boom',text:'merged',sourceIds:['job','second']}},'merge')),/injected_native_failure/);
   assert.equal(store.inspect(scope(),'job')!.state,'active');assert.equal(store.inspect(scope(),'second')!.state,'active');
@@ -76,7 +76,7 @@ test('A10: persistent background scope and deletion epoch reject late write afte
 test('task metadata stores source IDs without an unmetered duplicate of transcript payload',t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();seed(store);
   const data=store.contextRecords(scope(),'工作',10,10,10);store.prepareMaintenance({scope:scope(),messages:data.recent,relevantMemories:data.memories});
-  const db=new Database(f.filename);f.track(db);
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());
   const tasks=db.prepare('SELECT * FROM maintenance_tasks').all();assert.ok(!JSON.stringify(tasks).includes('海风公司'));
   assert.equal(store.transcriptBytes(),Buffer.byteLength('我在海风公司工作','utf8'));
 });
@@ -131,7 +131,7 @@ test('A14: restore within the persisted deletion window restores only memory, ne
 });
 
 test('opening a foreign database refuses to modify its existing tables',t=>{
-  const f=fixture();t.after(f.cleanup);const db=new Database(f.filename);db.exec('CREATE TABLE unrelated(value TEXT)');db.close();
+  const f=fixture();t.after(f.cleanup);const db=f.track(new Database(f.filename));db.exec('CREATE TABLE unrelated(value TEXT)');db.close();
   assert.throws(()=>new SqliteMemoryStore(f.options),/foreign_database/);
-  const check=new Database(f.filename);assert.ok(check.prepare("SELECT name FROM sqlite_master WHERE name='unrelated'").get());assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='characters'").get(),undefined);check.close();
+  const check=f.track(new Database(f.filename));assert.ok(check.prepare("SELECT name FROM sqlite_master WHERE name='unrelated'").get());assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='characters'").get(),undefined);check.close();
 });

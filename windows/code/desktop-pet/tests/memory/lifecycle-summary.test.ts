@@ -65,7 +65,7 @@ test('normal transcript expiry retains an effective summary; explicit correction
 
 test('native coverage write failure rolls back both summary record and partial coverage',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('a','今天练琴了'),message('b','准备周末登山')]);
-  const db=new Database(f.filename);f.track(db);db.exec("CREATE TRIGGER fail_coverage BEFORE INSERT ON summary_coverage WHEN new.source_id='b' BEGIN SELECT RAISE(ABORT,'coverage_write_failure'); END");
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.exec("CREATE TRIGGER fail_coverage BEFORE INSERT ON summary_coverage WHEN new.source_id='b' BEGIN SELECT RAISE(ABORT,'coverage_write_failure'); END");
   await assert.rejects(()=>lifecycle(store).summarizePending(scope(),signal()),/coverage_write_failure/);
   assert.deepEqual(store.visible(scope(),'summary'),[]);assert.equal((db.prepare('SELECT count(*) n FROM summary_coverage').get() as {n:number}).n,0);
 });

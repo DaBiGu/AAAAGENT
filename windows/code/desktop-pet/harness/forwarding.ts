@@ -1,5 +1,4 @@
-import {isOutside} from '../core/platform-files.js';
-import {openLocalUrl} from '../core/open-url.js';
+import { openLocalUrl } from '../core/open-url.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { workProjects } from './work-catalog.js';
@@ -81,7 +80,7 @@ export class HarnessForwarding implements ForwardingPort {
       if(root!==selected.detailRef.rootPath || !(await stat(root)).isDirectory())return invalid();
       if(selected.detailRef.entryFile){
         const path=await realpath(resolve(root,selected.detailRef.entryFile)).catch(()=>invalid()), rel=relative(root,path);
-        if(isOutside(root,path)||!(await stat(path)).isFile())return invalid();
+        if(rel==='..'||rel.replaceAll('\\','/').startsWith('../')||isAbsolute(rel)||!(await stat(path)).isFile())return invalid();
       }
       project={id:selected.id,name:selected.name,version:selected.version,detailRef:selected.detailRef,source:selected.source};
     }
@@ -162,7 +161,7 @@ export class HarnessForwarding implements ForwardingPort {
             if (root !== ref.rootPath || !(await stat(root)).isDirectory()) throw Error();
             if (ref.entryFile) {
               const path = await realpath(resolve(root, ref.entryFile)), rel = relative(root, path);
-              if (isOutside(root,path) || !(await stat(path)).isFile()) throw Error();
+              if (rel === '..' || rel.replaceAll('\\','/').startsWith('../') || isAbsolute(rel) || !(await stat(path)).isFile()) throw Error();
             }
           } catch { throw new CodexAppError('invalid_target'); }
         }

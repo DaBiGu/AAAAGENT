@@ -6,11 +6,13 @@ import type { WeChatAction, WeChatManagement, WeChatSnapshot, WeChatInputSource,
 import type { WorkInputBinding } from '../contracts/desktop-work.js';
 import { ILINK_ORIGIN, WeChatApi, WeChatApiError, weixinOrigin, type WeChatCredentials, type WeChatVoiceItem } from './api.js';
 import { channelKey, WeChatStore } from './store.js';
+import type { NativeInteractionCapture } from './workbench-interaction.js';
 
 export interface WeChatReplyContext { source: WeChatInputSource; replyMode: WeChatReplyMode }
-export interface WeChatInput { text: string; messageId: string; createdAt?: number; replyContext?: WeChatReplyContext }
+export interface WeChatInput { text: string; messageId: string; createdAt?: number; replyContext?: WeChatReplyContext; nativeInteractionCapture?: NativeInteractionCapture }
 export interface WeChatConversation {
   capture(): WorkInputBinding | undefined;
+  captureNativeInteractions?(): NativeInteractionCapture;
   receive(input: WeChatInput, binding: WorkInputBinding | undefined, signal: AbortSignal): Promise<void>;
   close(): Promise<void>;
 }
@@ -121,7 +123,7 @@ export class WeChatService implements WeChatManagement {
         if(result.msgs!==undefined&&!Array.isArray(result.msgs))throw new WeChatApiError('invalid_response');
         failures=0;this.update({status:'connected',detail:'已连接，仅接收绑定用户的单聊文字与语音。'});
         // Freeze before processing any item: a queued "confirm" cannot approve a card created by an earlier item in this same batch.
-        const binding=conversation.capture(),replyMode=this.state.replyMode;
+        const binding=conversation.capture(),nativeInteractionCapture=conversation.captureNativeInteractions?.()??{channel:key,cards:[]},replyMode=this.state.replyMode;
         for(const msg of result.msgs??[]){
           abort.signal.throwIfAborted();
           if(!msg||msg.from_user_id!==auth.userId||msg.group_id||msg.message_type!==1||msg.message_state!==2
@@ -153,7 +155,7 @@ export class WeChatService implements WeChatManagement {
             if(!abort.signal.aborted)await this.send(auth,key,'这条语音或文字未能识别，没有进入聊天或派发任务。请重新发送。','transcript-error:'+id,abort.signal);
             continue;
           }
-          try{await conversation.receive({text,messageId:id,replyContext,...(msg.create_time_ms!==undefined?{createdAt:msg.create_time_ms}:{})},binding,abort.signal);this.store.finish(key,'in:'+id,'handled');}
+          try{await conversation.receive({text,messageId:id,replyContext,nativeInteractionCapture,...(msg.create_time_ms!==undefined?{createdAt:msg.create_time_ms}:{})},binding,abort.signal);this.store.finish(key,'in:'+id,'handled');}
           catch{this.store.finish(key,'in:'+id,'unknown');if(!abort.signal.aborted)await this.send(auth,key,'这条消息未能处理完成，暂时没有可确认的回复。','input-error:'+id,abort.signal);}
         }
         if(validString(result.get_updates_buf,100000))this.store.set('cursor:'+key,result.get_updates_buf);
@@ -183,7 +185,7 @@ export class WeChatService implements WeChatManagement {
       const chars=Array.from(text);for(let n=0;n<chars.length;n+=1500){
         signal.throwIfAborted();const part='out:'+digest(id+':'+n),old=this.store.seenStatus(key,part);
         if(old==='accepted')continue;if(!this.store.claim(key,part))return false;
-        try{await this.api.send(auth,context,chars.slice(n,n+1500).join(''),randomUUID(),signal);this.store.finish(key,part,'accepted');}
+        try{await this.api.send(auth,context,chars.slice(n,n+1500).join(''),randomUUID(),signal);signal.throwIfAborted();this.store.finish(key,part,'accepted');}
         catch(error){this.store.finish(key,part,'unknown');this.update({lastDelivery:'unknown',detail:'回复尚未确认送达，请在微信主动查询；任务结果仍保留。'});return false;}
       }
       this.update({lastOutputAt:new Date().toISOString(),lastDelivery:'accepted'});return true;

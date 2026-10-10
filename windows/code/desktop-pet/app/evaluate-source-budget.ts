@@ -14,7 +14,7 @@ import { contextInputUpperBound, memoryTurnInputUpperBound, summaryInputUpperBou
 
 export async function evaluateSourceBudget(root: string, runId: string): Promise<void> {
   if (!root.startsWith('/') || !/^source-budget-[a-z0-9-]+$/.test(runId)) throw new Error('Explicit probe paths required');
-  const out = `${root}/.local/${runId}`;
+  const out = `${root}/artifacts/W0-I/${runId}`;
   await mkdir(out, { recursive: false });
   const sessionId = randomUUID(), scope = (): TurnScope => ({ characterId: 'friend', sessionId, turnId: randomUUID(), generation: 1 });
   const store = new SqliteMemoryStore({ filename: `${out}/synthetic.sqlite`, retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai') });

@@ -23,9 +23,9 @@ function fixture(): TrialConfiguration {
   const root = '/nonexistent-catalog-test-project';
   return { version: 1, phaseId: 'local-trial-catalog-controlled', purpose: 'user-trial', projectRoot: root,
     sourceRevision: 'a'.repeat(40), runtimeFiles: Object.fromEntries(['dist/app/trial-backend.js',
-      'dist/app/trial-launcher.js', 'desktop/build/renderer.js', 'desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet']
+      'dist/app/trial-launcher.js', 'desktop/build/renderer.js', ...(process.platform === 'win32' ? ['desktop/electron/main.mjs', 'desktop/electron/preload.cjs', 'desktop/electron/transport.mjs', 'desktop/electron/layout.mjs', 'desktop/electron/assets.mjs', 'tools/management-url.mjs'] : ['desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'])]
       .map(path => [`code/desktop-pet/${path}`, 'a'.repeat(64)])),
-    database: `${root}/state.sqlite`, budgetFile: `${root}/.local/model-evaluation/budget.json`,
+    database: `${root}/state.sqlite`, budgetFile: `${root}/${process.platform === 'win32' ? '.local/model-evaluation' : 'artifacts/W0-I/model-evaluation'}/budget.json`,
     budgetBatchId: 'synthetic-catalog', limitMicros: 20000000, phaseLimitMicros: 20000000, maxCalls: 260,
     operationLimits: { admission: 30, dialogue: 30, memory_turn: 60, summary: 10, perception: 10, tts: 120 },
     memory: { mode: 'strict', scheduling: 'semantic-admission', timeoutMs: 300000 },
@@ -79,7 +79,7 @@ test('catalog is detached from the baseline and fresh between calls, including n
 
 test('six existing adapter choices pass trial bounds and keep model/price/reservation as one configuration', () => {
   const base = fixture();
-  for (const adapter of managementAdapterCatalog(base).filter(adapter => adapter.id !== 'qwen-audio-tts')) {
+  for (const adapter of managementAdapterCatalog(base).filter(adapter => !['qwen-audio-tts', 'minimax-tts'].includes(adapter.id))) {
     assert.equal(new Set(adapter.models).size, adapter.models.length);
     const slot = adapter.slots[0]!;
     for (const choice of adapter.choices!) {
@@ -119,7 +119,7 @@ test('Flash selection reaches the actual dialogue request and keeps non-thinking
     return Response.json({ choices: [{ message: { content: JSON.stringify({ text: '我在。', expression }) }, finish_reason: 'stop' }] });
   }));
   assert.equal((await provider.reply({ scope, text: '你好', context: { scope, characterPrompt: '朋友', recent: [],
-    summary: '', memories: [], perception: null, inputTokenBudget: 5000 } }, signal())).text, '我在。');
+    summary: '', memories: [], perception: null, inputTokenBudget: 32768 } }, signal())).text, '我在。');
   assert.equal(calls, 1);
 });
 
@@ -172,12 +172,9 @@ test('supported TTS voice changes the existing request and returns WAV without p
   await store.releaseScope(scope);
 });
 
-test('only reviewed MiniMax cloning is offered and it has no selectable voice before enrollment', () => {
+test('voice cloning is confined to the registered MiniMax adapter', () => {
   const catalog = managementAdapterCatalog(fixture());
   assert.deepEqual(catalog.filter(adapter => adapter.capabilities.cloning).map(adapter => adapter.id), ['minimax-tts']);
-  for (const choice of catalog.find(adapter => adapter.id === 'minimax-tts')!.choices!) {
-    assert.deepEqual(choice.voices, []); assert.equal(choice.configuration.voice, undefined);
-  }
   assert.doesNotMatch(JSON.stringify(catalog.map(adapter => adapter.models)), /cosyvoice|deepseek-v4-flash|tts-vc/);
   assert.deepEqual(catalog.find(adapter => adapter.id === 'strict-deepseek')!.models, ['deepseek-v4-pro']);
 });

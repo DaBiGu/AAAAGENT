@@ -27,7 +27,7 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 type Wire = { messages: { role: string; content: string }[] };
 
 function fixture(t: TestContext, options: { background?: EmotionInferenceProvider; plan?: (input: MemoryTurnInput) => Promise<MemoryTurnPlan>; beforeContext?: (store: SqliteMemoryStore, scope: TurnScope) => void } = {}) {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/emotion-state-51/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-S/emotion-state-51/tmp');
   mkdirSync(parent, { recursive: true });
   const directory = mkdtempSync(join(parent, 'review-'));
   const storeOptions = { filename: join(directory, 'synthetic.sqlite'), retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai'), clock: () => NOW };

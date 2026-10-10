@@ -35,5 +35,7 @@ test('Windows launch pins host and preload, preserves spaced arguments, and refu
   await assert.rejects(verifyTrialRuntime(config));
   const missing = structuredClone(config); delete missing.runtimeFiles['code/desktop-pet/desktop/electron/main.mjs'];
   assert.throws(() => validateTrialConfiguration(missing));
+  for (const outputMode of ['text', 'voice']) assert.equal(validateTrialConfiguration({ ...config, outputMode }).outputMode, outputMode);
+  for (const outputMode of ['silent', '', null, false]) assert.throws(() => validateTrialConfiguration({ ...config, outputMode }), /对话输出模式/);
   assert.throws(() => validateTrialConfiguration({ ...config, runtimeFiles: { ...runtimeFiles, 'code/desktop-pet/C:\\escape': hash('x') } }));
 });

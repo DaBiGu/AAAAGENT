@@ -132,7 +132,7 @@ test('derived fragment DAG cycle, unknown support and support being suppressed a
 
 test('fragment SQL failure rolls back original state, epoch, FTS, operation IDs and allocated fragments',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('raw','面试失败，猫叫团子'),message('request','忘记面试')]);store.apply(change({type:'add',id:'cat',text:'猫叫团子',sourceIds:['raw']},'cat'));
-  const db=new Database(f.filename);f.track(db);const before=db.prepare('SELECT revision,epoch FROM characters WHERE character_id=?').get('companion');
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());const before=db.prepare('SELECT revision,epoch FROM characters WHERE character_id=?').get('companion');
   db.exec("CREATE TRIGGER fail_fragment BEFORE INSERT ON memory_records WHEN new.fragment_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'fragment_failure'); END");
   await assert.rejects(()=>lifecycle(store,async input=>({...forget(input,['raw']),retainSources:[fragment(input,'raw','猫叫团子')],changes:[change({type:'update',id:'cat',expectedVersion:1,text:'猫叫团子',sourceIds:['f0']},'update')]})).prepareTurn(scope(),'request','忘记面试',signal()),/fragment_failure/);
   assert.deepEqual(db.prepare('SELECT revision,epoch FROM characters WHERE character_id=?').get('companion'),before);assert.equal(store.inspect(scope(),'cat')!.version,1);assert.equal(store.search(scope(),'团子',5).length,1);assert.equal(store.inspect(scope(),'raw')!.state,'active');assert.equal(db.prepare("SELECT * FROM memory_operations WHERE operation_id='update'").get(),undefined);
@@ -181,7 +181,7 @@ test('clarification assistant is display-only even while current raw remains act
 
 test('new product metadata repair preserves unbound assistant payload and refuses lifecycle when derived facts depend on it',t=>{
   const f=fixture();t.after(f.cleanup);let store=f.open();store.append(scope(),[replyMessage(scope(),'猫叫团子')]);store.close();
-  const db=new Database(f.filename);db.exec('DROP INDEX records_logical_order; ALTER TABLE memory_records DROP COLUMN logical_order; ALTER TABLE memory_records DROP COLUMN evidence_eligible; ALTER TABLE memory_records DROP COLUMN fragment_json');db.close();
+  const db=f.track(new Database(f.filename));db.exec('DROP INDEX records_logical_order; ALTER TABLE memory_records DROP COLUMN logical_order; ALTER TABLE memory_records DROP COLUMN evidence_eligible; ALTER TABLE memory_records DROP COLUMN fragment_json');db.close();
   store=f.open();assert.equal(store.inspect(scope(),'turn-1:assistant')!.text,'猫叫团子');assert.equal(store.inspect(scope(),'turn-1:assistant')!.evidenceEligible,false);assert.equal(store.contextRecords(scope(),'团子',10,10,10).recent.length,0);assert.doesNotThrow(()=>lifecycle(store));
   store.apply(change({type:'add',id:'bad',text:'猫叫团子',sourceIds:['turn-1:assistant']},'old-path'));
   assert.throws(()=>lifecycle(store),/unbound_assistant_derivatives/);assert.equal(store.inspect(scope(),'bad')!.state,'active');assert.equal(store.inspect(scope(),'turn-1:assistant')!.text,'猫叫团子');
@@ -205,7 +205,7 @@ test('assistant rejects silent current text replacement even if version and epoc
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('current','猫叫团子')]);
   const port=lifecycle(store,undefined,undefined,{context:{...contextOptions,inputTokenBudget:10,countTokens:context=>context.recent.length*100}});
   await port.prepareTurn(scope(),'current','猫叫团子',signal());const context=await port.context(scope(),'猫叫团子',null,signal());
-  const db=new Database(f.filename);f.track(db);db.prepare("UPDATE memory_records SET text='猫叫糯米' WHERE character_id='companion' AND id='current'").run();
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.prepare("UPDATE memory_records SET text='猫叫糯米' WHERE character_id='companion' AND id='current'").run();
   await assert.rejects(()=>port.appendAssistant(scope(),replyMessage(scope()),context,'current',signal()),/stale_assistant_current/);assert.equal(store.inspect(scope(),'turn-1:assistant'),null);
 });
 
@@ -214,7 +214,7 @@ test('late fragment plan is rejected after source version changes; cancelled pla
   for(const mode of ['version','cancel'] as const){
     let input!:MemoryTurnInput;const pending=deferred<MemoryTurnPlan>();const controller=new AbortController();
     const port=lifecycle(store,async value=>{input=value;return pending.promise;});const result=port.prepareTurn(scope(),'request','忘记面试',controller.signal);
-    if(mode==='version'){const db=new Database(f.filename);db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='raw'").run();db.close();}else controller.abort(new Error('cancel-fragment'));
+    if(mode==='version'){const db=f.track(new Database(f.filename));db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='raw'").run();db.close();}else controller.abort(new Error('cancel-fragment'));
     pending.resolve({...forget(input,['raw']),retainSources:[fragment(input,'raw','猫叫团子')]});
     if(mode==='cancel')await assert.rejects(result,/cancel-fragment/);else assert.equal((await result).rejectionCode,'stale_lifecycle_source');
     assert.equal(store.visible(scope(),'transcript').filter(r=>r.fragment).length,0);assert.equal(store.inspect(scope(),'raw')!.state,'active');
@@ -229,14 +229,14 @@ test('mixed current correction replaces old fact using retained current fragment
 
 test('only-summary no-support exception rejects hidden or missing ancestors instead of laundering provenance',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('raw','面试失败，猫叫团子')]);store.recordDerived(scope(),{id:'s',kind:'summary',text:'面试失败，猫叫团子',sourceIds:['raw'],createdAt:NOW});store.append(scope(),[message('request','忘记面试')]);
-  const db=new Database(f.filename);f.track(db);db.prepare("UPDATE memory_records SET state='invalidated' WHERE character_id='companion' AND id='raw'").run();
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.prepare("UPDATE memory_records SET state='invalidated' WHERE character_id='companion' AND id='raw'").run();
   const result=await lifecycle(store,async input=>({...forget(input,['s']),retainSources:[fragment(input,'s','猫叫团子')]})).prepareTurn(scope(),'request','忘记面试',signal());
   assert.equal(result.rejectionCode,'derived_fragment_requires_support');assert.equal(store.inspect(scope(),'s')!.state,'active');
 });
 
 test('assistant SQL failure rolls back and leaves issued ticket reusable for the same response',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('current','你好')]);const port=lifecycle(store);await port.prepareTurn(scope(),'current','你好',signal());const context=await port.context(scope(),'你好',null,signal());
-  const db=new Database(f.filename);f.track(db);db.exec("CREATE TRIGGER fail_assistant BEFORE INSERT ON memory_records WHEN new.message_role='assistant' BEGIN SELECT RAISE(ABORT,'assistant_failure'); END");const before=store.revision(scope());
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.exec("CREATE TRIGGER fail_assistant BEFORE INSERT ON memory_records WHEN new.message_role='assistant' BEGIN SELECT RAISE(ABORT,'assistant_failure'); END");const before=store.revision(scope());
   await assert.rejects(()=>port.appendAssistant(scope(),replyMessage(scope()),context,'current',signal()),/assistant_failure/);assert.equal(store.revision(scope()),before);assert.equal(store.inspect(scope(),'turn-1:assistant'),null);
   db.exec('DROP TRIGGER fail_assistant');await port.appendAssistant(scope(),replyMessage(scope()),context,'current',signal());assert.equal(store.inspect(scope(),'turn-1:assistant')!.evidenceEligible,true);
 });

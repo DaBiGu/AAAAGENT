@@ -54,13 +54,13 @@ test('second business rejection rolls back earlier writes, FTS, operation log, s
   const outcome=await port.prepareTurn(scope(),'request','我开始种花',signal());
   assert.equal(outcome.status,'rejected');assert.ok(outcome.results.every(result=>result.status==='rejected'));assert.deepEqual(outcome.affectedIds,[]);
   assert.equal(store.inspect(scope(),'flowers'),null);assert.equal(store.inspect(scope(),'raw')!.state,'active');assert.equal(store.search(scope(),'海风公司',10).length,1);
-  const db=new Database(f.filename);f.track(db);assert.equal((db.prepare('SELECT count(*) n FROM memory_turn_outcomes').get() as {n:number}).n,0);
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());assert.equal((db.prepare('SELECT count(*) n FROM memory_turn_outcomes').get() as {n:number}).n,0);
   assert.equal((db.prepare("SELECT count(*) n FROM memory_operations WHERE operation_id='first'").get() as {n:number}).n,0);
 });
 
 test('native error during a later change rolls back the complete plan and remains an error',async t=>{
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('request','我开始种花，也喜欢读书')]);
-  const db=new Database(f.filename);f.track(db);db.exec("CREATE TRIGGER fail_plan BEFORE INSERT ON memory_records WHEN new.id='books' BEGIN SELECT RAISE(ABORT,'plan_write_failure'); END");
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.exec("CREATE TRIGGER fail_plan BEFORE INSERT ON memory_records WHEN new.id='books' BEGIN SELECT RAISE(ABORT,'plan_write_failure'); END");
   const port=lifecycle(store,async input=>({...none(input),changes:[change({type:'add',id:'flowers',text:'种花',sourceIds:['request']},'first'),change({type:'add',id:'books',text:'读书',sourceIds:['request']},'second')]}));
   await assert.rejects(()=>port.prepareTurn(scope(),'request','我开始种花，也喜欢读书',signal()),/plan_write_failure/);
   assert.equal(store.inspect(scope(),'flowers'),null);assert.equal((db.prepare('SELECT count(*) n FROM memory_turn_outcomes').get() as {n:number}).n,0);
@@ -139,7 +139,7 @@ test('source versions are rechecked even if an external write does not advance m
   const f=fixture();t.after(f.cleanup);const store=f.open();store.append(scope(),[message('raw','原文事实'),message('request','请忘记原文事实')]);
   const delayed=deferred<MemoryTurnPlan>();let input!:MemoryTurnInput;const port=lifecycle(store,async value=>{input=value;return delayed.promise;});
   const pending=port.prepareTurn(scope(),'request','请忘记原文事实',signal());
-  const db=new Database(f.filename);f.track(db);db.prepare("UPDATE memory_records SET version=version+1,text='已经修正' WHERE character_id='companion' AND id='raw'").run();
+  const db=f.track(new Database(f.filename));t.after(()=>db.close());db.prepare("UPDATE memory_records SET version=version+1,text='已经修正' WHERE character_id='companion' AND id='raw'").run();
   delayed.resolve(forget(input,['raw']));assert.equal((await pending).status,'rejected');assert.equal(store.inspect(scope(),'request')!.state,'active');assert.equal(store.inspect(scope(),'raw')!.text,'已经修正');
 });
 

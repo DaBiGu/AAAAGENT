@@ -1,4 +1,3 @@
-import { restrictPrivatePathSync } from '../core/platform-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdir, readdir, lstat, realpath, open, unlink } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
@@ -21,7 +20,7 @@ const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest(
 export function firstRunDraft(projectRoot:string,credentialDirectory=managedCredentialDirectory(projectRoot)):TrialConfiguration {
  const deepseek=resolve(credentialDirectory,'unconfigured-deepseek.key'),dashscope=resolve(credentialDirectory,'unconfigured-dashscope.key');
  const text=deepseekFlashModel(deepseek),chat='https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
- return {version:1,desktopHost:process.platform==='win32'?'electron':'macos',product:'companion-v1',phaseId:'local-trial-personal',purpose:'user-trial',projectRoot,sourceRevision:'unprepared',runtimeFiles:{},database:resolve(projectRoot,'.local/data/companion.sqlite'),budgetFile:resolve(projectRoot,'.local/model-evaluation/budget.json'),budgetBatchId:'local-'+hash(projectRoot).slice(0,24),budgetMode:'unlimited',limitMicros:null,phaseLimitMicros:0,maxCalls:0,operationLimits:{dialogue:0,memory_turn:0,summary:0,perception:0,tts:0,admission:0},memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000},models:{
+ return {version:1,product:'companion-v1',phaseId:'local-trial-personal',purpose:'user-trial',projectRoot,sourceRevision:'unprepared',runtimeFiles:{},database:resolve(projectRoot,'data/desktop-pet/companion.sqlite'),budgetFile:resolve(projectRoot,'artifacts/W0-I/model-evaluation/budget.json'),budgetBatchId:'local-'+hash(projectRoot).slice(0,24),budgetMode:'unlimited',limitMicros:null,phaseLimitMicros:0,maxCalls:0,operationLimits:{dialogue:0,memory_turn:0,summary:0,perception:0,tts:0,admission:0},memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000},models:{
   dialogue:text,summary:text,admission:text,
   memory_turn:{provider:'deepseek',model:'deepseek-v4-pro',endpoint:text.endpoint,credentialFile:deepseek,reservationMicros:11000000,inputTokenLimit:32768,outputTokenLimit:393216,inputMicrosPerToken:9,outputMicrosPerToken:27,thinking:'high'},
   asr:{provider:'dashscope',model:'qwen3-asr-flash-2026-02-10',endpoint:chat,credentialFile:dashscope,reservationMicros:220,inputTokenLimit:0,outputTokenLimit:0,inputMicrosPerToken:0,outputMicrosPerToken:0,audioMicrosPerSecond:220},
@@ -33,7 +32,7 @@ async function exists(file:string):Promise<boolean>{try{await lstat(file);return
 async function runtimePins(root:string):Promise<Record<string,string>>{
  const files:Record<string,string>={};
  async function scan(directory:string):Promise<void>{for(const entry of await readdir(directory,{withFileTypes:true})){const file=resolve(directory,entry.name);if(entry.isSymbolicLink())throw Error('runtime_symlink');if(entry.isDirectory()){if(!['node_modules','.cache','.git'].includes(entry.name))await scan(file);}else if(entry.isFile())files[relative(root,file).split('\\').join('/')]=hash(await readFile(file));}}
- await scan(resolve(root,'code/desktop-pet/dist'));await scan(resolve(root,'code/desktop-pet/desktop'));await scan(resolve(root,'code/desktop-pet/tools'));return files;
+ await scan(resolve(root,'code/desktop-pet/dist'));await scan(resolve(root,'code/desktop-pet/desktop'));return files;
 }
 /** Opens without a Key, voice, JSON config, app bundle or Live2D asset. No provider probes or devices. */
 export async function startFirstRunSetup(projectRoot:string,options:{credentialDirectory?:string;fetch?:typeof fetch;uiRoot?:string}={}){
@@ -47,14 +46,14 @@ export async function startFirstRunSetup(projectRoot:string,options:{credentialD
  const instanceId=randomUUID();
  let server:Awaited<ReturnType<typeof startManagementServer>>|undefined,setup:ReturnType<typeof createSelfSetup>|undefined;
  try{
-  const voices=await RegisteredVoiceStore.open(resolve(root,'.local/data/registered-voices.json'));
+  const voices=await RegisteredVoiceStore.open(resolve(root,'data/desktop-pet/registered-voices.json'));
   const settings=await ManagementSettingsStore.open(resolve(directory,'management-settings.json'),base,voices,{credentials,draftOnly:true});
   let completed=false;
   async function blockers():Promise<string[]>{
    const result:string[]=[],saved=settings.snapshot().saved,available=credentials.list();
    if(Object.values(saved.providers).some(p=>!available.some(c=>c.id===p.credentialRef&&c.provider===p.provider&&c.status==='configured')))result.push('请保存所需Key，并在每个模型模块选择同供应商的凭据。');
    try{await readPresentationCatalog(root);}catch{result.push('启动前还需配置自己有权使用的 Live2D 模型与匹配目录；现在仍可保存Key和准备音色。');}
-   const required=['dist/app/trial-backend.js','dist/app/trial-launcher.js','desktop/build/renderer.js',...(base.desktopHost==='electron'?['desktop/electron/main.mjs','desktop/electron/preload.cjs','desktop/electron/transport.mjs','desktop/electron/layout.mjs','desktop/electron/assets.mjs','tools/management-url.mjs']:['desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'])];
+   const required=['dist/app/trial-backend.js','dist/app/trial-launcher.js','desktop/build/renderer.js','desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'];
    for(const path of required)if(!await exists(resolve(root,'code/desktop-pet',path))){result.push('启动前需要完成本机应用构建；现在仍可完成模型与音色设置。');break;}
    return result;
   }
@@ -65,7 +64,7 @@ export async function startFirstRunSetup(projectRoot:string,options:{credentialD
    const raw=JSON.stringify(config,null,2)+'\n',activation=JSON.stringify({version:1,phaseId:config.phaseId,status:'prepared',configSha256:hash(raw)})+'\n';
    // Exclusive writes; retries may complete the exact same partially prepared pair, never replace an existing configuration.
    for(const [file,content] of [[files.configFile,raw],[files.activationFile,activation]] as const){
-    try{const handle=await open(file,'wx',0o600);try{restrictPrivatePathSync(file);await handle.writeFile(content);}finally{await handle.close();}}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST'||await readFile(file,'utf8')!==content)throw new ManagementError('version_conflict','已有配置与本次准备不同，未覆盖。');}
+    try{await writeFile(file,content,{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST'||await readFile(file,'utf8')!==content)throw new ManagementError('version_conflict','已有配置与本次准备不同，未覆盖。');}
    }
    completed=true;
   }});

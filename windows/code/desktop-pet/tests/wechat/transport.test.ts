@@ -11,7 +11,7 @@ import type { WorkInputBinding } from '../../contracts/desktop-work.js';
 const auth:WeChatCredentials={token:'synthetic-private-token',botId:'bot',userId:'user',baseUrl:ILINK_ORIGIN};
 const signal=new AbortController().signal;
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
-function root(t:import('node:test').TestContext){const parent=resolve('../../.local/wechat-21/tmp');mkdirSync(parent,{recursive:true});const r=mkdtempSync(join(realpathSync(parent),'channel-'));t.after(()=>rmSync(r,{recursive:true,force:true}));return r;}
+function root(t:import('node:test').TestContext){const parent=resolve('../../artifacts/W3/wechat-native-interactions-54/tmp');mkdirSync(parent,{recursive:true});const r=mkdtempSync(join(realpathSync(parent),'channel-'));t.after(()=>rmSync(r,{recursive:true,force:true}));return r;}
 async function until(p:()=>boolean){for(let n=0;n<200;n++){if(p())return;await sleep(10);}assert.fail('controlled channel did not reach expected state');}
 const json=(v:unknown)=>new Response(JSON.stringify(v),{headers:{'Content-Type':'application/json'}});
 function blocked(s:AbortSignal):Promise<Response>{return new Promise((_,reject)=>{if(s.aborted)reject(s.reason);else s.addEventListener('abort',()=>reject(s.reason),{once:true});});}
@@ -55,4 +55,26 @@ test('factory failure is recoverable and stop aborts an active input without a l
  const store=new WeChatStore(join(root(t),'channel.sqlite'));store.set('credentials',auth);store.set('enabled',true);let attempts=0,receiving=false,stopped=false,polls=0;
  const service=new WeChatService(store,new WeChatApi((async(_u,o)=>{if(polls++===0)return json({msgs:[{message_id:'1',from_user_id:'user',message_type:1,message_state:2,item_list:[{type:1,text_item:{text:'hold'}}]}]});return blocked(o!.signal!);}) as typeof fetch),async()=>{if(attempts++===0)throw Error('synthetic failure');return {capture:()=>undefined,receive:async(_i,_b,s)=>{receiving=true;await blocked(s).catch(()=>{stopped=true;});},close:async()=>{}};});
  await service.restore();assert.equal(service.snapshot().status,'error');assert.equal(service.snapshot().enabled,false);await service.action({action:'start',expectedRevision:service.snapshot().revision});await until(()=>receiving);await service.action({action:'stop',expectedRevision:service.snapshot().revision});assert.equal(stopped,true);assert.equal(service.snapshot().status,'paused');await service.close();
+});
+test('native card snapshots freeze before a batch and partial outbound delivery never becomes an admitted card',async t=>{
+ const store=new WeChatStore(join(root(t),'channel.sqlite')),key=channelKey(auth);store.set('credentials',auth);store.set('enabled',true);
+ let polls=0,sends=0,captures=0;let shown:import('../../wechat/workbench-interaction.js').NativeInteractionCapture={channel:key,cards:[]};
+ const inputs:import('../../wechat/workbench-interaction.js').NativeInteractionCapture[]=[],deliveries:boolean[]=[];
+ const msg=(id:string)=>({message_id:id,from_user_id:'user',to_user_id:'bot',message_type:1,message_state:2,context_token:'context',item_list:[{type:1,text_item:{text:id}}]});
+ const api=new WeChatApi((async(u,o)=>{if(String(u).endsWith('sendmessage')){sends++;if(sends===2)throw Error('second card chunk lost');return json({ret:0});}if(++polls===1)return json({msgs:[msg('query'),msg('old-reply')]});return blocked(o!.signal!);}) as typeof fetch);
+ const service=new WeChatService(store,api,async(_key,send)=>({capture:()=>undefined,captureNativeInteractions:()=>{captures++;return structuredClone(shown);},receive:async input=>{
+  inputs.push(input.nativeInteractionCapture!);
+  if(input.text==='query'){
+   const delivered=await send('card'.repeat(600),'large-card');deliveries.push(delivered);
+   // Simulate subsequent card state; the second inbound item must still carry the earlier empty capture.
+   shown={channel:key,cards:[{task:{id:'task',projectId:'project',provider:'codex',origin:'t3',environmentId:'env',t3ProjectId:'np',threadId:'nt',providerInstanceId:'codex'},id:'request',version:1,kind:'approval',fingerprint:'hash',sentAt:Date.now()}]};
+  }
+ },close:async()=>{}}));
+ await service.restore();await until(()=>polls>=2);assert.equal(captures,1);assert.deepEqual(inputs,[{channel:key,cards:[]},{channel:key,cards:[]}]);assert.deepEqual(deliveries,[false]);assert.equal(sends,2);await service.close();
+});
+test('late successful send after stop is unknown and cannot admit a delivered native card',async t=>{
+ const store=new WeChatStore(join(root(t),'channel.sqlite'));store.set('credentials',auth);store.set('enabled',true);let polls=0,sending=false;const deliveries:boolean[]=[];
+ const api=new WeChatApi((async(u,o)=>{if(String(u).endsWith('sendmessage')){sending=true;await new Promise<void>(resolve=>o!.signal!.addEventListener('abort',()=>resolve(),{once:true}));return json({ret:0});}if(++polls===1)return json({msgs:[{message_id:'query',from_user_id:'user',message_type:1,message_state:2,context_token:'context',item_list:[{type:1,text_item:{text:'query'}}]}]});return blocked(o!.signal!);}) as typeof fetch);
+ const service=new WeChatService(store,api,async(_key,send)=>({capture:()=>undefined,receive:async()=>{deliveries.push(await send('card','card'));},close:async()=>{}}));
+ await service.restore();await until(()=>sending);await service.action({action:'stop',expectedRevision:service.snapshot().revision});assert.deepEqual(deliveries,[false]);await service.close();
 });

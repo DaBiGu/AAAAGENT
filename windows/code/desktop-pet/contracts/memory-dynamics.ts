@@ -23,7 +23,7 @@ export interface MemoryDynamicsPolicy {
   readonly importanceWeight: number;
   readonly emotionWeight: number;
 }
-/** Fixed algorithm: H=base*(1+2*S); reinforcement=.2; P>=.35; at most six. */
+/** Fixed algorithm: H=base*(1+2*S); reinforcement=.2; P>=.35; foreground selection uses the input budget. */
 export const DEFAULT_MEMORY_DYNAMICS_POLICY: Readonly<MemoryDynamicsPolicy> = Object.freeze({
   baseHalfLifeDays: 30, emotionHalfLifeDays: 7,
   baselineWeight: .55, activationWeight: .25, importanceWeight: .15, emotionWeight: .05,
@@ -115,6 +115,7 @@ export interface MemoryRecallCandidate {
 }
 /** Store source references, not a second copy of user text. Filter forgotten sources on read. */
 export interface MemoryRecallTrace {
+  readonly contextBudget?: import('./context-budget.js').ContextBudgetReport;
   readonly id: string;
   readonly kind: 'actual';
   readonly scope: TurnScope;

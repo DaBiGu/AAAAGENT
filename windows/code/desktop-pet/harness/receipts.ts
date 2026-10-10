@@ -3,11 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { constants, openSync, readSync, closeSync, mkdirSync, fstatSync } from 'node:fs';
 import { basename, dirname, isAbsolute } from 'node:path';
 import { ManagementError } from '../contracts/management.js';
-import type { WorkConversationMessage } from '../contracts/desktop-work.js';
+import type { WorkConversationMessage, WorkTaskReference } from '../contracts/desktop-work.js';
 import type { WorkPlanFailureCode } from '../providers/work-plan.js';
 import type { TurnScope } from '../contracts/index.js';
 import type { ForwardRequest } from '../contracts/harness.js';
-import { restrictPrivatePathSync } from '../core/platform-files.js';
 
 export interface StoredForward extends ForwardRequest {
   /** Durable deduplication boundary for the irreversible App send, not an execution queue. */
@@ -29,6 +28,14 @@ export interface StoredWorkDraft {
   originalText?: string;
   conversation?: WorkConversationMessage[];
   everPrepared?: boolean;
+  /** Fixed same-session predecessor; undefined only for legacy drafts, null means none. */
+  previousDraftId?: string | null;
+  /** Same-card canonical source, retained separately from model summary. Never execution consent. */
+  canonicalTask?: {
+    baseText: string; baseScope: TurnScope; revisions: WorkConversationMessage[]; previousTask?: WorkTaskReference;
+    priorConversation?: Pick<WorkConversationMessage,'role'|'text'>[];
+    routing: Pick<ForwardRequest,'executor'|'target'|'project'>; title: string;
+  };
 }
 function reminderState(row: ForwardRequest): string {
   return JSON.stringify([row.phase, row.nativeStatus ?? null, row.appTurnId ?? null, row.harnessSessionId ?? null, row.result ?? null]);
@@ -58,9 +65,6 @@ export class ForwardReceipts {
       mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
       const newFile = openSync(filename, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); closeSync(newFile); created = true;
     } finally { if (fd !== undefined) closeSync(fd); }
-    // Windows ignores POSIX creation modes. Restrict our new, still-empty file
-    // before SQLite writes task text; existing user databases stay untouched.
-    if (created && process.platform === 'win32') restrictPrivatePathSync(filename);
     this.db = new Database(filename, { fileMustExist: true });
     try { this.db.transaction(() => {
       const app = this.db.pragma('application_id', { simple: true });
@@ -161,9 +165,9 @@ export class ForwardReceipts {
       this.db.prepare('UPDATE confirmations SET payload=? WHERE id=?').run(JSON.stringify(row), id); return row;
     }).immediate();
   }
-  createDraft(scope: TurnScope, text: string, question?: string): StoredWorkDraft {
+  createDraft(scope: TurnScope, text: string, question?: string, previousDraftId: string | null = null): StoredWorkDraft {
     validateTaskText(text);
-    const row: StoredWorkDraft = { id: randomUUID(), version: 1, text, originalText: text, scope: { ...scope }, createdAt: new Date().toISOString(), status: 'open', everPrepared: false, ...(question ? { question, conversation: [{role:'assistant' as const,text:question,scope:{...scope}}] } : {}) };
+    const row: StoredWorkDraft = { id: randomUUID(), version: 1, text, originalText: text, scope: { ...scope }, createdAt: new Date().toISOString(), status: 'open', everPrepared: false, previousDraftId, ...(question ? { question, conversation: [{role:'assistant' as const,text:question,scope:{...scope}}] } : {}) };
     this.db.prepare('INSERT INTO work_drafts VALUES(?,?,?)').run(row.id, row.createdAt, JSON.stringify(row)); return row;
   }
   draft(id: string): StoredWorkDraft {
@@ -173,6 +177,16 @@ export class ForwardReceipts {
   draftForOperation(operationId: string): StoredWorkDraft | undefined {
     const rows = this.db.prepare("SELECT payload FROM work_drafts WHERE json_extract(payload,'$.operationId')=? LIMIT 2").all(operationId) as {payload:string}[];
     return rows.length === 1 ? JSON.parse(rows[0]!.payload) : undefined;
+  }
+  /** Insertion order is stable even when timestamps tie or old receipts are updated later. */
+  previousConfirmedDraft(scope:TurnScope,beforeDraftId?:string):StoredWorkDraft|undefined {
+    const row=this.db.prepare(`SELECT d.payload FROM work_drafts d
+      WHERE json_extract(d.payload,'$.status')='confirmed'
+      AND json_extract(d.payload,'$.scope.characterId')=? AND json_extract(d.payload,'$.scope.sessionId')=?
+      AND (? IS NULL OR d.rowid < (SELECT rowid FROM work_drafts WHERE id=?))
+      AND EXISTS (SELECT 1 FROM confirmations c WHERE c.id=json_extract(d.payload,'$.operationId') AND json_extract(c.payload,'$.confirmedAt') IS NOT NULL)
+      ORDER BY d.rowid DESC LIMIT 1`).get(scope.characterId,scope.sessionId,beforeDraftId??null,beforeDraftId??null) as {payload:string}|undefined;
+    return row?JSON.parse(row.payload):undefined;
   }
   drafts(): StoredWorkDraft[] { return (this.db.prepare('SELECT payload FROM work_drafts ORDER BY created_at DESC,id DESC LIMIT 50').all() as { payload: string }[]).map(row => JSON.parse(row.payload)); }
   mutateDraft(id: string, expectedVersion: number, update: (row: StoredWorkDraft) => void): StoredWorkDraft {

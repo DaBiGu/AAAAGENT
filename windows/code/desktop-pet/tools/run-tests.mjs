@@ -18,6 +18,6 @@ else if (group === 'release') {
 } else if (group === 'default') {
   for (const dir of ['memory', 'providers']) await collect('dist/tests/' + dir, name => name.endsWith('.test.js'));
 } else throw Error('Unknown test group');
-const child = spawn(process.execPath, ['--test', ...paths], { stdio: 'inherit', windowsHide: true });
+const child = spawn(process.execPath, ['--test', '--test-concurrency=2', ...paths], { stdio: 'inherit', windowsHide: true });
 child.on('error', error => { console.error(error.message); process.exitCode = 1; });
 child.on('exit', code => { process.exitCode = code ?? 1; });

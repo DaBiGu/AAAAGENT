@@ -1,3 +1,7 @@
+import { LocalAsrProvider, LocalTtsProvider } from '../providers/local-speech.js';
+import { selectTrialDialogue } from './dialogue-selection.js';
+import { isOutside, isPrivateFileSync } from '../core/platform-files.js';
+import { countRequestInput,inputBudgetInfo,DEFAULT_CURRENT_EMOTION_RESERVE_TOKENS } from '../providers/input-count.js';
 import { normalizeApiKey, MAX_API_KEY_FILE_BYTES } from '../core/api-key.js';
 import { EmotionTurns } from '../core/emotion-state.js';
 import { homedir } from 'node:os';
@@ -10,15 +14,16 @@ import { WeChatService } from '../wechat/service.js';
 import { WeChatApi } from '../wechat/api.js';
 import { WeChatStore } from '../wechat/store.js';
 import { WeChatTextConversation } from '../wechat/conversation.js';
+import { readCompanionChatHistory } from './companion-chat-history.js';
 import { WorkPlanner } from '../providers/work-plan.js';
 import { DesktopWork } from '../harness/desktop-work.js';
+import { DesktopWorkbench, readDesktopCoordinatorProfile } from './desktop-workbench.js';
 import { WorkIntentClassifier } from '../providers/work-intent.js';
 import { QwenAsrProvider } from '../providers/qwen-asr.js';
 import { QwenVisualEmotionProvider, VISUAL_EMOTION_PROMPT } from '../providers/qwen-visual-emotion.js';
 import { SplitPerceptionProvider } from '../providers/split-perception.js';
 import { StrictManagementForget, withStrictManagementForget } from './management-forget.js';
 import { assertCompanionDataConfiguration } from './companion-data.js';
-import { isOutside, isPrivateFileSync } from '../core/platform-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, statSync, realpathSync } from 'node:fs';
 import { appendFile, mkdir, open, unlink } from 'node:fs/promises';
@@ -28,6 +33,7 @@ import {pendingMemoryManagement} from '../management/pending-memory.js';
 import { fileURLToPath } from 'node:url';
 import type { MemoryTurnInput, MemoryTurnPlan, MemoryTurnProvider, MemoryTurnOutcome } from '../contracts/memory-lifecycle.js';
 import type { TurnScope, TtsProvider, MediaStorePort } from '../contracts/index.js';
+import { COMPANION_ID } from '../contracts/character.js';
 import type { ProviderSelection } from '../contracts/management.js';
 import { confirmedInvitationPolicy } from '../companion/invitations.js';
 import { SqliteMemoryStore, CONFIRMED_RETENTION } from '../memory/sqlite-store.js';
@@ -38,10 +44,10 @@ import { effectiveTrialConfiguration } from '../management/settings.js';
 import { ManagementRuntime } from '../management/runtime.js';
 import { PresentationSettingsStore, readPresentationCatalog } from '../management/presentation.js';
 import { startRuntimeManagement } from '../management/bootstrap.js';
+import { loadProjectTerminalRuntimeRegistration } from '../management/project-terminal-configuration.js';
 import type { MemoryRecord } from '../memory/ledger.js';
 import { abortable } from '../media/scope.js';
 import { MemoryMediaStore } from '../media/store.js';
-import { JsonDialogueProvider } from '../providers/qwen-dialogue.js';
 import { JsonSummaryProvider } from '../providers/qwen-memory-lifecycle.js';
 import { QwenPerceptionProvider } from '../providers/qwen-perception.js';
 import { QwenTtsProvider, billedCharacters } from '../providers/qwen-tts.js';
@@ -53,7 +59,7 @@ import { BackendSession, type BackendPorts } from './backend-session.js';
 import { TrialAuthorizer } from './trial-authorizer.js';
 import { readActiveTrialConfiguration, type TrialConfiguration, type TrialOperation } from './trial-config.js';
 import { verifyTrialRuntime } from './trial-launcher.js';
-import { contextInputUpperBound, summaryInputUpperBound } from './input-budgets.js';
+import { summaryInputUpperBound } from './input-budgets.js';
 import { inspectPcmWav } from '../media/wav.js';
 import { prototypeSnapshot } from './memory-planning-prototype.js';
 import { runMemorySemanticAttempt, type SemanticAttemptEvent } from './memory-semantic-adapter.js';
@@ -68,7 +74,7 @@ export class TrialTransport extends ProviderTransport {
     signal: AbortSignal, textCharacters?: number, audioSeconds?: number): Promise<JsonRecord> {
     const model = this.configuration.models[operation as TrialOperation];
     if (!model || operation === 'memory_maintenance') throw new Error('Unregistered trial operation');
-    if (operation !== 'tts' && operation !== 'perception' && operation !== 'asr') {
+    if (operation !== 'dialogue' && operation !== 'tts' && operation !== 'perception' && operation !== 'asr') {
       const upper = Buffer.byteLength(JSON.stringify(body.messages), 'utf8') + 2048;
       if (upper > model.inputTokenLimit) throw new Error('Trial request exceeds its reviewed input bound');
     }
@@ -115,6 +121,7 @@ export class TrialTransport extends ProviderTransport {
     if (config.model !== model.model || config.endpoint !== model.endpoint) throw new Error('Trial transport provider mismatch');
     const boundedBody = model.provider === 'deepseek' && operation !== 'memory_turn' ? { ...body, max_tokens: operation === 'admission' && Number.isSafeInteger(body.max_tokens) && Number(body.max_tokens) > 0 && Number(body.max_tokens) <= 4096 ? Math.min(Number(body.max_tokens), model.outputTokenLimit) : model.outputTokenLimit } : body;
     const requestBody = operation === 'dialogue' && this.dialogueTemperature !== undefined ? { ...boundedBody, temperature: this.dialogueTemperature } : boundedBody;
+    if(operation==='dialogue'&&countRequestInput({...requestBody,model:config.model})>inputBudgetInfo(model).effectiveInputTokens)throw Error('required_context_exceeds_budget');
     const call = (sent: () => void = () => {}) => new ProviderTransport((...args) => {
       sent(); return this.providerFetch(...args);
     }).request(config, scope, operation, requestBody, boundedSignal, textCharacters, audioSeconds);
@@ -195,8 +202,9 @@ export function keyReader(filename: string, configuration: TrialConfiguration, c
     if (activation?.version !== 1 || activation.status !== 'active' || activation.phaseId !== configuration.phaseId
       || activation.configSha256 !== createHash('sha256').update(raw).digest('hex')
       || JSON.stringify(JSON.parse(raw)) !== JSON.stringify(configuration)) throw new Error('Trial is not active');
-    const actual = realpathSync(filename), local = relative(realpathSync(configuration.projectRoot), actual), info = statSync(actual);
-    if (!isAbsolute(filename) || !isOutside(realpathSync(configuration.projectRoot), actual) || info.size > MAX_API_KEY_FILE_BYTES || !isPrivateFileSync(actual, info)) throw new Error('Restricted external trial credential file required');
+    const actual = realpathSync(filename), info = statSync(actual);
+    if (!isAbsolute(filename) || !isOutside(realpathSync(configuration.projectRoot), actual) || !info.isFile() || info.size > MAX_API_KEY_FILE_BYTES
+      || !isPrivateFileSync(actual)) throw new Error('Restricted external trial credential file required');
     const key = normalizeApiKey(readFileSync(actual, 'utf8'));
     if (key === undefined) throw new Error('Trial credential must contain exactly one key');
     return key;
@@ -226,6 +234,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
   let managementForget: StrictManagementForget | undefined;
   let memoryImport: SqliteMemoryImportManagement | undefined;
   let desktopWork: import('../contracts/desktop-work.js').DesktopWorkPort | undefined;
+  let desktopWorkbench: DesktopWorkbench | undefined;
   let management: Awaited<ReturnType<typeof startRuntimeManagement>> | undefined;
   const release = async () => { await lock.close(); await unlink(lockPath); };
   try {
@@ -273,11 +282,15 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
         return this.report(await super.prepareBackgroundTurn(scope, id, text, signal), id, text, signal);
       }
     }
+    const presentation = await PresentationSettingsStore.open(resolve(configuration.projectRoot, '.local/data/presentation-settings.json'),
+      await readPresentationCatalog(configuration.projectRoot), policy => process.stdout.write(JSON.stringify({ channel: 'presentation_policy', policy }) + '\n'));
+    const {dialogue,foregroundBudget}=selectTrialDialogue(configuration,()=>endpoint('dialogue'),transport,
+      ()=>presentation.allowedIntent(),settings.effective.context.targetInputTokens,settings.effective.providers.dialogue.temperature);
     const strictProvider=new StrictTrialMemoryProvider(store, endpoint('memory_turn'), transport, configuration.phaseId, evidence, configuration.models.memory_turn.thinking);
     const memory = new ObservedTrialMemory(store, {
-      context: { inputTokenBudget: configuration.models.dialogue.inputTokenLimit, maxRecentMessages: settings.effective.context.maxRecentMessages, maxMemories: settings.effective.context.maxMemories,
-        summaryLimit: settings.effective.context.summaryLimit, countTokens: contextInputUpperBound, relevance: () => 1 },
-      turn: { inputTokenBudget: configuration.models.memory_turn.inputTokenLimit,
+      context: { inputTokenBudget: foregroundBudget.effectiveInputTokens,budgetInfo:foregroundBudget,currentEmotionReserveTokens:settings.effective.context.currentEmotionReserveTokens??DEFAULT_CURRENT_EMOTION_RESERVE_TOKENS, maxRecentMessages: settings.effective.context.maxRecentMessages, maxMemories: settings.effective.context.maxMemories,
+        summaryLimit: settings.effective.context.summaryLimit, countTokens: dialogue.countContext.bind(dialogue), relevance: () => 1 },
+      turn: { readLimits:{maxRecentMessages:settings.effective.context.maxRecentMessages,maxMemories:settings.effective.context.maxMemories,summaryLimit:settings.effective.context.summaryLimit},inputTokenBudget: configuration.models.memory_turn.inputTokenLimit,
         countTokens: input => buildMemorySemanticFormat(input,true).inputUpperBound, maxSupplementaryPlans: 1,
         provider: strictProvider },
       summary: { inputTokenBudget: configuration.models.summary.inputTokenLimit, minMessages: settings.effective.context.summaryMinMessages, maxMessages: settings.effective.context.summaryMaxMessages,
@@ -285,6 +298,11 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     });
     if(configuration.purpose==='user-trial' && typeof (memory as import('../contracts/memory-lifecycle.js').BackgroundMemoryPort).beginPendingMutation!=='function')throw Error('Background privacy capability is required');
     const mediaStore = new MemoryMediaStore();
+    const makeAsr = (media: MediaStorePort) => configuration.localSpeech?.asr
+      ? new LocalAsrProvider(configuration.localSpeech, media) : new QwenAsrProvider(endpoint('asr'), media, transport);
+    const makeTts = (media: MediaStorePort) => configuration.localSpeech?.tts
+      ? new LocalTtsProvider(configuration.localSpeech, media)
+      : createTrialTtsProvider(settings.effective.providers.tts, endpoint('tts'), media, transport, voices);
     const admission = new TrialAdmission(endpoint('admission'), transport,
       (scope, text, signal) => configuration.purpose==='user-trial' ? memory.foregroundContext(scope,`${scope.turnId}:user`,text,null,signal) : memory.context(scope, text, null, signal), async value => {
         if (value.rejected && configuration.purpose === 'smoke-text') await authorizer.stop('admission_rejected');
@@ -293,19 +311,19 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
       context => memory.assertContextCurrent(context), async event => {
         if (configuration.purpose === 'smoke-text') await diagnostic({ ...event, phaseId: configuration.phaseId });
       });
-    const presentation = await PresentationSettingsStore.open(resolve(configuration.projectRoot, '.local/data/presentation-settings.json'),
-      await readPresentationCatalog(configuration.projectRoot), policy => process.stdout.write(JSON.stringify({ channel: 'presentation_policy', policy }) + '\n'));
     const sessionPorts: BackendPorts = { memory, backgroundMemory: memory, mediaStore,
+      ...(configuration.outputMode ? { outputMode: configuration.outputMode } : {}),
+      readCompanionHistory: characterId => readCompanionChatHistory(configuration.database, characterId),
       createEmotion:()=>new EmotionTurns(store!.emotion,store!),
       consumeWakeHit: hit => wake?.consumeHit(hit),
       companionProfile: store,
       ...(configuration.purpose==='user-trial' ? {classifyMemoryRequest:admission.foregroundRequest.bind(admission)} : {isMemoryIndependent:admission.isIndependent.bind(admission)}),
-      dialogue: new JsonDialogueProvider(endpoint('dialogue'), transport, () => presentation.allowedIntent()),
-      perception: configuration.models.asr
-        ? new SplitPerceptionProvider(new QwenAsrProvider(endpoint('asr'), mediaStore, transport),
+      dialogue,
+      perception: configuration.localSpeech?.asr || configuration.models.asr
+        ? new SplitPerceptionProvider(makeAsr(mediaStore),
           new QwenVisualEmotionProvider(endpoint('perception'), mediaStore, transport), { visualTimeoutMs: 1500 })
         : new QwenPerceptionProvider({ ...endpoint('perception'), cueLifetimeMs: 5 * 60_000 }, mediaStore, transport),
-      tts: createTrialTtsProvider(settings.effective.providers.tts, endpoint('tts'), mediaStore, transport, voices),
+      tts: makeTts(mediaStore),
     };
     session = new BackendSession(sessionPorts, message => {
       runtime.observeDesktop(message);
@@ -323,14 +341,15 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
         const channelStore=new WeChatStore(resolve(configuration.projectRoot,'.local/data/wechat/channel.sqlite'));
         const voiceMedia=new MemoryMediaStore();
         const replyMedia=new MemoryMediaStore(),channelApi=new WeChatApi();
-        const replyTts=createTrialTtsProvider(settings.effective.providers.tts,endpoint('tts'),replyMedia,transport,voices);
+        const replyTts=makeTts(replyMedia);
         wechat=new WeChatService(channelStore,channelApi,async(key,send)=>{
           if(!management)throw Error('Management not ready');
           const workChannel=management.createWorkChannel(resolve(configuration.projectRoot,'.local/data/wechat/work',key));
           const conversation=new WeChatTextConversation({key,store:channelStore,send,ports:sessionPorts,...workChannel,
+            ...(management.workbench?{workbenchRead:management.workbench}:{}),
             classifier:new WorkIntentClassifier(endpoint('admission'),transport),planner:new WorkPlanner(endpoint('admission'),transport)});
           try{return await conversation.start();}catch(error){await conversation.close();throw error;}
-        },{transcribe:wechatTranscriber(voiceMedia,new QwenAsrProvider(endpoint('asr'),voiceMedia,transport)),
+        },{transcribe:wechatTranscriber(voiceMedia,makeAsr(voiceMedia)),
           sendVoice:wechatAudioFileSender(replyMedia,replyTts,channelApi)});
       } catch { process.stderr.write('WeChat channel storage unavailable; companion data unchanged.\n'); }
       const wakeModels=resolve(configuration.projectRoot,'.local/data/wake-models');
@@ -346,7 +365,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
       const importConfiguration = memoryImportConfiguration(configuration);
       try { memoryImport = new SqliteMemoryImportManagement({
         filename: resolve(configuration.projectRoot,'.local/data/memory-import.sqlite'),
-        codexHome: resolve(process.env.CODEX_HOME || resolve(homedir(),'.codex')), instanceId: runtime.instanceId, store,
+        codexHome: resolve(homedir(),'.codex'), instanceId: runtime.instanceId, store,
         configuration: importConfiguration,
         countTokens: historicalMemoryInputBytes,
         processor: { async plan(input,signal,settle) {
@@ -361,14 +380,37 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
       management = await startRuntimeManagement(registeredConfiguration, configFile, settings, runtime,
         withStrictManagementForget(new SqliteManagementMemoryPort(store,memory),managementForget),presentation,
         pendingMemoryManagement(runtime.instanceId,memory,(scope,id)=>{const source=store!.inspect(scope,id);return source?.state==='active'&&source.message?.role==='user'?{text:source.text,createdAt:source.message.createdAt}:undefined;},
-          (scope,id,text)=>session!.retryPendingMemory(scope,id,text),()=>session!.pendingMemoryJobs().some(x=>x.queued+x.running>0)),wechat,wake,memoryImport,store.emotion);
+          (scope,id,text)=>session!.retryPendingMemory(scope,id,text),()=>session!.pendingMemoryJobs().some(x=>x.queued+x.running>0)),wechat,wake,memoryImport,store.emotion,
+        await loadProjectTerminalRuntimeRegistration(registeredConfiguration), configuration.localSpeech?.asr || configuration.models.asr ? {
+          model: configuration.localSpeech?.asr?.model ?? configuration.models.asr!.model,
+          async transcribe(inputId, wav, signal) {
+            const engineeringMedia = new MemoryMediaStore();
+            const scope: TurnScope = { characterId: COMPANION_ID, sessionId: `engineering-web-${inputId}`, turnId: inputId, generation: 0 };
+            try {
+              const audio = await engineeringMedia.put(scope, wav, 'audio/wav');
+              return (await makeAsr(engineeringMedia).transcribe({ scope, audio }, signal)).transcript;
+            } finally { await engineeringMedia.releaseScope(scope); }
+          },
+        } : undefined);
     }
     if (configuration.purpose === 'user-trial') {
+      if (management?.workbench && management.projects) {
+        desktopWorkbench = new DesktopWorkbench(management.projects, management.workbench,
+          state => process.stdout.write(JSON.stringify({ channel: 'workbench_state', state }) + '\n'),
+          notice => session!.notifyWork(notice),
+          projectId => readDesktopCoordinatorProfile(configuration.projectRoot, projectId));
+        session.attachWorkbench(desktopWorkbench);
+        await desktopWorkbench.start();
+      }
       const classifier = new WorkIntentClassifier(endpoint('admission'), transport);
       if (management?.tasks && management.projects && management.receipts) {
         const work = new DesktopWork({ receipts: management.receipts, projects: management.projects, forwarding: management.tasks,
           classify: classifier.classify.bind(classifier), interpret: classifier.interpret.bind(classifier),
           plan: (scope,text,catalog,signal)=>new WorkPlanner(endpoint('admission'),transport).plan(scope,text,catalog,signal),
+          ...(desktopWorkbench ? { workbenchSelection: desktopWorkbench.focusSnapshot.bind(desktopWorkbench),
+            workbenchRoute: desktopWorkbench.routeInput.bind(desktopWorkbench),
+            workbenchBeginInput: desktopWorkbench.beginInput.bind(desktopWorkbench),
+            workbenchContinuation: desktopWorkbench.continueInput.bind(desktopWorkbench) } : {}),
           emit: state => process.stdout.write(JSON.stringify({ channel: 'work_state', state }) + '\n'), notify: notice => session!.notifyWork(notice) });
         desktopWork = work; session.attachWork(work); await work.start();
       } else {
@@ -391,7 +433,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     const close = async () => {
       if (stopping) return; stopping = true; clearInterval(cleanupTimer); lines.close(); process.stdin.pause();
       managementForget?.close();
-      try { await wake?.close(); await wechat?.close(); await desktopWork?.close(); await management?.close(); await managementForget?.drain(); await settings.drain(); await presentation.drain(); }
+      try { await wake?.close(); await wechat?.close(); await desktopWork?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain(); await settings.drain(); await presentation.drain(); }
       finally { try { await session!.close(); } finally { await release(); } }
     };
     let submitted = false;
@@ -412,7 +454,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     process.once('SIGTERM', () => { void close(); }); process.once('SIGINT', () => { void close(); });
   } catch (error) {
     managementForget?.close();
-    await wake?.close(); await wechat?.close(); await management?.close(); await managementForget?.drain();
+    await wake?.close(); await wechat?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain();
     await memoryImport?.close();
     if (session) await session.close(); else store?.close();
     await release(); throw error;

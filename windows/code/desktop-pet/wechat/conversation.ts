@@ -10,11 +10,16 @@ import type { WorkIntentClassifier } from '../providers/work-intent.js';
 import type { WorkPlanner } from '../providers/work-plan.js';
 import type { WeChatConversation, WeChatInput, WeChatSend, WeChatReplyContext } from './service.js';
 import type { WeChatStore } from './store.js';
+import type { WorkbenchChannelReadPort, WorkbenchChannelCommandPort } from '../contracts/workbench.js';
+import { WorkbenchQuery } from './workbench-query.js';
+import { WeChatWorkbenchCommand } from './workbench-command.js';
+import { WeChatWorkbenchInteraction, nativeInteractionPort } from './workbench-interaction.js';
 import { MemoryMediaStore } from '../media/store.js';
 
 interface Options {
   key: string; store: WeChatStore; send: WeChatSend; ports: BackendPorts;
   receipts: ForwardReceipts; forwarding: HarnessForwarding; projects: ProjectIndexPort;
+  workbenchRead?: WorkbenchChannelReadPort;
   classifier: Pick<WorkIntentClassifier,'classify'|'interpret'>; planner: Pick<WorkPlanner,'plan'>;
 }
 type Presented = { binding: WorkInputBinding; sentAt: number };
@@ -34,17 +39,46 @@ function approvalText(r:ForwardRequest):string {
   const session=r.harnessSessionId&&/^[A-Za-z0-9_-]{1,128}$/.test(r.harnessSessionId)?'\n原生会话：'+r.harnessSessionId:'\n回执未提供可定位的原生会话。';
   return (r.plan?.title??r.text.slice(0,80))+'：等待原生 Harness 工具批准'+session+entry+'\n'+(tools.length?tools.map(name=>name+'：'+known[name]).join('\n'):'回执未提供可显示的工具名称或具体动作。')+'\n请在原生会话核对具体操作；这里不会代为批准。';
 }
+function queryRow({row:r,stale}:{row:ForwardRequest;stale:boolean},n:number):string {
+  return (n+1)+'. '+(r.nativeStatus==='approval'?approvalText(r):(r.plan?.title??r.text.slice(0,40))+'：'+labels[r.phase]+(r.result?'\n'+r.result:r.detail?'\n'+r.detail:''))+(stale?'\n本次刷新未完成，以上为已保存状态。':'');
+}
+function allQueryPages(rows:string[]):string[] {
+  const items=rows.map(row=>{
+    const chars=Array.from(row);
+    return chars.length>850?chars.slice(0,850).join('')+'\n本项详情已截短，请到原任务查看。':chars.join('');
+  });
+  const groups:string[][]=[[]];let used=0;
+  for(const item of items){
+    if(used+Array.from(item).length>1200&&groups.at(-1)!.length){groups.push([]);used=0;}
+    groups.at(-1)!.push(item);used+=Array.from(item).length+2;
+  }
+  return groups.map((group,n)=>'当前绑定微信会话已确认派发记录，共'+rows.length+'项；仅含本会话历史及本会话已确认工作台续接，不含外部选中的任务。（第'+(n+1)+'/'+groups.length+'段）'+(group.length?'\n\n'+group.join('\n\n'):'\n还没有从当前微信会话已派发的任务。'));
+}
+function commandPort(read:WorkbenchChannelReadPort|undefined):WorkbenchChannelCommandPort|undefined {
+  const candidate=read as Partial<WorkbenchChannelCommandPort>|undefined;
+  return candidate&&typeof candidate.prepareContinuation==='function'&&typeof candidate.readContinuationDraft==='function'&&typeof candidate.reviseContinuation==='function'&&
+    typeof candidate.dismissContinuation==='function'&&typeof candidate.confirmContinuation==='function'&&
+    typeof candidate.readContinuation==='function'?candidate as WorkbenchChannelCommandPort:undefined;
+}
 /** Same runtime/work classes, separate channel state and real text-only output. */
 export class WeChatTextConversation implements WeChatConversation {
   private readonly session: BackendSession;
   private readonly work: DesktopWork;
+  private readonly workbenchQuery: WorkbenchQuery;
+  private readonly workbenchCommand: WeChatWorkbenchCommand;
+  private readonly workbenchInteraction: WeChatWorkbenchInteraction;
   private state?: DesktopWorkState;
   private pending=new Set<Promise<unknown>>();
   private suppressNotices=false;
   private closed=false;
   private incoming: {id:string;context:WeChatReplyContext}|undefined;
   private turns=new Map<string,WeChatReplyContext>();
+  private queryEpoch=0;
   constructor(private readonly options: Options) {
+    this.workbenchQuery=new WorkbenchQuery({read:options.workbenchRead,store:options.store,channelKey:options.key});
+    this.workbenchCommand=new WeChatWorkbenchCommand({port:commandPort(options.workbenchRead),store:options.store,channelKey:options.key,
+      focusTask:()=>this.workbenchQuery.focusTask(),selectTask:task=>this.workbenchQuery.selectTask(task)});
+    this.workbenchInteraction=new WeChatWorkbenchInteraction({port:nativeInteractionPort(options.workbenchRead),store:options.store,channelKey:options.key,focusTask:()=>this.workbenchQuery.focusTask()});
     this.session=new BackendSession({...options.ports,outputMode:'text',mediaStore:new MemoryMediaStore()},message=>{
       if(message.channel==='event'&&message.event.type==='turn'&&message.event.input.clientRequestId===this.incoming?.id){
         this.turns.set(message.event.input.scope.turnId,{...this.incoming!.context});
@@ -68,6 +102,7 @@ export class WeChatTextConversation implements WeChatConversation {
     if(binding.requestId && (!request||request.id!==binding.requestId||request.version!==binding.requestVersion||request.phase!=='awaiting_confirmation'||request.confirmedAt))return;
     return structuredClone(binding);
   }
+  captureNativeInteractions() { return this.workbenchInteraction.capture(); }
   private async notice(notice: WorkStatusNotice) {
     if(this.closed)return;
     const taskId=notice.taskId??notice.id;
@@ -94,13 +129,38 @@ export class WeChatTextConversation implements WeChatConversation {
   }
   async receive(input: WeChatInput,binding: WorkInputBinding|undefined,signal: AbortSignal) {
     signal.throwIfAborted();
+    const epoch=++this.queryEpoch;
     const context={...(input.replyContext??{source:'text' as const,replyMode:'follow_input' as const})};
+    const native=await this.workbenchInteraction.handle(input,signal);
+    if(native.handled){
+      signal.throwIfAborted();
+      if(native.text&&native.current()){
+        const delivered=await this.options.send(native.text,'workbench-native:'+input.messageId,context);
+        native.onDelivered?.(delivered);
+      }
+      return;
+    }
+    const command=await this.workbenchCommand.handle(input,signal,!!this.state?.draft&&this.state.confirmation?.phase==='awaiting_confirmation');
+    if(command.handled){
+      signal.throwIfAborted();
+      if(command.text&&command.current()){
+        const delivered=await this.options.send(command.text,'workbench-command:'+input.messageId,context);
+        command.onDelivered?.(delivered);
+      }
+      return;
+    }
     const query=queryMode(input.text);
+    const workbench=await this.workbenchQuery.handle(input.text,signal,query==='latest'||query==='all'?query:undefined);
+    if(workbench.handled){
+      signal.throwIfAborted();
+      if(workbench.text&&workbench.current())await this.options.send(workbench.text,'workbench-query:'+input.messageId,context);
+      return;
+    }
     if(query){
       // Freeze selected IDs before any await. A later task or old task update cannot change this query's target.
       const rows=this.options.receipts.queryDispatched(query!=='latest');
       const normalize=(name:string)=>name.normalize('NFKC').replace(/[\s，。？！!?、：:“”"'「」]/g,'').toLowerCase();
-      let selected:ForwardRequest[]=rows;
+      let selected:ForwardRequest[]=query==='all'?rows.filter(r=>r.executor==='harness'?!!r.harnessSessionId:!!r.target?.threadId):rows;
       if(typeof query==='object'){
         const name=normalize(query.name.replace(/的任务$/,''));
         const ranked=rows.map(r=>{
@@ -120,11 +180,23 @@ export class WeChatTextConversation implements WeChatConversation {
       const records: {row:ForwardRequest;stale:boolean}[]=[];
       for(const r of selected){
         signal.throwIfAborted();
+        if(epoch!==this.queryEpoch)return;
         try{records.push({row:await this.options.forwarding.refreshReceipt(r.id),stale:false});}
         catch{records.push({row:this.options.forwarding.record(r.id),stale:true});}
       }
       signal.throwIfAborted();
-      const text=records.length?records.map(({row:r,stale},n)=>(n+1)+'. '+(r.nativeStatus==='approval'?approvalText(r):(r.plan?.title??r.text.slice(0,40))+'：'+labels[r.phase]+(r.result?'\n'+r.result:r.detail?'\n'+r.detail:''))+(stale?'\n本次刷新未完成，以上为已保存状态。':'')).join('\n\n'):typeof query==='object'?'当前微信会话没有与“'+query.name+'”匹配的已派发任务回执。请到原任务查看；本次没有新建或转发查询。':'还没有从当前微信会话已派发的任务。';
+      if(epoch!==this.queryEpoch)return;
+      if(query==='all'){
+        const continuation=await this.workbenchCommand.history(signal);
+        if(epoch!==this.queryEpoch)return;
+        const items=records.map(queryRow).concat(continuation.map((row,n)=>(records.length+n+1)+'. '+row));
+        for(const [n,page] of allQueryPages(items).entries()){
+          if(epoch!==this.queryEpoch)return;
+          if(!await this.options.send(page,'query:'+input.messageId+':page:'+n,context))return;
+        }
+        return;
+      }
+      const text=records.length?records.map(queryRow).join('\n\n'):typeof query==='object'?'当前微信会话没有与“'+query.name+'”匹配的已派发任务回执。请到原任务查看；本次没有新建或转发查询。':'还没有从当前微信会话已派发的任务。';
       await this.options.send(text,'query:'+input.messageId,context);return;
     }
     const shown=this.options.store.get<Presented>('presented:'+this.options.key);

@@ -16,12 +16,12 @@ function databaseContent(filename:string):string {
   return JSON.stringify(tables.map(name=>[name,db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()]));
  }finally{db.close();}
 }
-test('ordinary ranking caps at six after all candidates, leaving maintenance closure uncapped',async()=>{
+test('ordinary ranking admits all eligible candidates without count caps, leaving maintenance closure uncapped',async()=>{
  const f=setup();try{
   const store=f.open();for(let i=0;i<10;i++)add(store,'m'+i,'红茶 '+i);
-  const ranked=store.recall.rank(scope(),'红茶');assert.equal(ranked.filter(r=>r.selected).length,6);assert.equal(ranked.filter(r=>r.omission==='limit').length,4);
+  const ranked=store.recall.rank(scope(),'红茶');assert.equal(ranked.filter(r=>r.selected).length,10);assert.equal(ranked.filter(r=>r.omission==='limit').length,0);
   assert.equal(store.search(scope(),'红茶',30,'lexical').length,10);
-  const port=lifecycle(store);const context=await port.context(scope(),'红茶',null,signal());assert.equal(context.memories.length,6);
+  const port=lifecycle(store);const context=await port.context(scope(),'红茶',null,signal());assert.equal(context.memories.length,10);
   assert.equal(store.recall.traces({characterId:'companion',offset:0,limit:20}).total,0);
   store.apply(change({type:'soft_delete',id:'m0',expectedVersion:1},'del'));
   const candidate=store.recall.rank(scope(),'红茶').find(r=>r.source.id==='m0')!;assert.equal(candidate.omission,'hard_gate');assert.equal(candidate.priority,0);assert.deepEqual(candidate.matchedTerms,[]);
@@ -50,7 +50,7 @@ test('actual trace records selected sources, consumption, restart and irreversib
   const result=new SqliteDynamicsManagementPort(store).forget({characterId:'companion',id:'m',expectedVersion:1,operationId:'forget',reason:'用户要求遗忘'});
   assert.equal(result.status,'applied');assert.equal(store.inspect(scope(),'raw-m')!.state,'invalidated');
   const trace=store.recall.traces({characterId:'companion',offset:0,limit:20}).records[0]!;assert.equal(trace.status,'invalidated');assert.deepEqual(trace.candidates,[]);
-  const db=new Database(f.filename,{readonly:true});assert.ok(!JSON.stringify(db.prepare('SELECT * FROM memory_recall_trace').all()).includes('红茶'));db.close();
+  const db=f.track(new Database(f.filename,{readonly:true}));assert.ok(!JSON.stringify(db.prepare('SELECT * FROM memory_recall_trace').all()).includes('红茶'));db.close();
   assert.throws(()=>new SqliteDynamicsManagementPort(store).restore({characterId:'companion',id:'m',expectedVersion:2,operationId:'restore',reason:'恢复'}),/来源已失效/);
  }finally{f.cleanup();}
 });

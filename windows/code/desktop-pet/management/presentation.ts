@@ -27,14 +27,14 @@ export function validatePresentationCatalog(value: unknown): PresentationCatalog
   return structuredClone(c);
 }
 export async function readPresentationCatalog(projectRoot: string): Promise<PresentationCatalog> {
-  const base = resolve(projectRoot, 'code/desktop-pet/desktop/assets/local-model');
+  const base = resolve(projectRoot, 'code/desktop-pet/desktop/assets/jellyfish');
   const manifest = await readFile(resolve(base, 'pet.model3.json'));
   const catalog = validatePresentationCatalog(JSON.parse(await readFile(resolve(base, 'presets.json'), 'utf8')));
   const refs = JSON.parse(manifest.toString('utf8')).FileReferences;
   const paths = [...new Set(['pet.model3.json', refs.Moc, refs.Physics, ...refs.Expressions.map((x: { File: string }) => x.File), ...Object.values(refs.Motions as Record<string, { File: string }[]>).flat().map(x => x.File)].filter(Boolean))] as string[];
   const pieces: string[] = [];
   for (const path of paths.sort()) {
-    if (path.startsWith('/') || /[:%\\]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Invalid model reference');
+    if (path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Invalid model reference');
     pieces.push(path + '\0' + createHash('sha256').update(await readFile(resolve(base, path))).digest('hex') + '\n');
   }
   if (createHash('sha256').update(pieces.join('')).digest('hex') !== catalog.modelFingerprint) throw new ManagementError('unavailable', '模型已变化，预设目录需要重新核对。');

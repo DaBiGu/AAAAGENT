@@ -10,13 +10,13 @@ const length=s=>Array.from(s).length;
 function problem(f){
  if(!f.name.trim()||length(f.name)>120)return '请填写项目名称，最多 120 字。';
  if(length(f.abstract)>480)return '项目摘要最多 480 字。';
- if(!f.rootPath.startsWith('/')||length(f.rootPath)>4096||f.rootPath.includes('\0')||f.rootPath.split(/[\\/]/).includes('..'))return '项目目录应是本机绝对路径，不能包含上级目录跳转。';
- if(f.entryFile&&(f.entryFile.startsWith('/')||f.entryFile.includes('\\')||f.entryFile.includes(':')||f.entryFile.includes('\0')||f.entryFile.split('/').includes('..')||length(f.entryFile)>1024))return '文档入口应是项目内的相对路径，不能包含上级目录或网址。';
+ if(!/^(?:\/|[a-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/i.test(f.rootPath)||length(f.rootPath)>4096||/[\0\r\n]/.test(f.rootPath)||f.rootPath.split(/[\\/]/).includes('..'))return '项目目录应是本机绝对路径，不能包含上级目录跳转。';
+ if(f.entryFile&&(/^[\\/]/.test(f.entryFile)||f.entryFile.includes(':')||/[\0\r\n]/.test(f.entryFile)||f.entryFile.split(/[\\/]/).includes('..')||length(f.entryFile)>1024))return '文档入口应是项目内的相对路径，不能包含上级目录或网址。';
  if(Boolean(f.hostId.trim())!==Boolean(f.threadId.trim()))return '关联任务时，请同时填写主机标识和任务标识；也可以同时留空。';
  if(f.hostId.includes('\0')||f.threadId.includes('\0'))return '任务关联信息包含无效字符。';
  return '';
 }
-export function createProjectsView(client,render,getHost){
+export function createProjectsView(client,render,getHost,openMemory=()=>{}){
  const s={page:null,query:'',appliedQuery:'',offset:0,selected:null,drafts:new Map(),stale:true,error:'',message:'',busy:false,confirmation:null};
  let identity=null,connection=null,epoch=0,sequence=0;
  const reads=new Map();
@@ -110,9 +110,9 @@ export function createProjectsView(client,render,getHost){
    panel.append(button('已核对，保留我的改动',review,{id:'project-review',disabled:!online()||d.stale||s.busy||d.missing}));
   }
   panel.append(el('div',{class:'project-form'},field('项目名称','project-name',d.form.name,v=>edit('name',v),{maxLength:240,disabled:locked}),field('短摘要','project-abstract',d.form.abstract,v=>edit('abstract',v),{type:'textarea',maxLength:960,disabled:locked,hint:'用几句话说明这个项目，最多 480 字。'}),
-   field('项目目录','project-root',d.form.rootPath,v=>edit('rootPath',v),{maxLength:4096,disabled:locked,placeholder:'/path/to/your/project'}),field('文档入口（可选）','project-entry',d.form.entryFile,v=>edit('entryFile',v),{maxLength:1024,disabled:locked,placeholder:'docs/README.md',hint:'填写相对项目目录的位置；这里只保存引用，不读取项目文件。'}),
+   field('项目目录','project-root',d.form.rootPath,v=>edit('rootPath',v),{maxLength:4096,disabled:locked,placeholder:'C:\\Projects\\我的项目'}),field('文档入口（可选）','project-entry',d.form.entryFile,v=>edit('entryFile',v),{maxLength:1024,disabled:locked,placeholder:'docs/README.md',hint:'填写相对项目目录的位置；这里只保存引用，不读取项目文件。'}),
    el('details',{class:'project-target'},el('summary',{},'关联现有 Codex 任务 · 尚未核验连接'),el('p',{class:'subtle'},'仅保存任务关联，尚未核验连接。'),el('div',{class:'form-grid'},field('主机标识','project-host',d.form.hostId,v=>edit('hostId',v),{disabled:locked}),field('任务标识','project-thread',d.form.threadId,v=>edit('threadId',v),{disabled:locked}))),
-   el('div',{class:'actions'},button(s.busy?'处理中…':'保存索引',()=>mutate('save'),{id:'project-save',class:'primary',disabled:!canWrite()}),newItem&&button('放弃这份草稿',()=>{s.confirmation={id,kind:'discard'};render();document.getElementById('project-remove-cancel')?.focus({preventScroll:true});},{id:'project-discard',disabled:s.busy}),!newItem&&button('移除索引卡片',()=>{if(canWrite()){s.confirmation={id,version:d.version,kind:'remove'};render();document.getElementById('project-remove-cancel')?.focus({preventScroll:true});}},{id:'project-remove',disabled:!canWrite()}))));
+   el('div',{class:'actions'},button(s.busy?'处理中…':'保存索引',()=>mutate('save'),{id:'project-save',class:'primary',disabled:!canWrite()}),!newItem&&button('查看项目记忆',()=>openMemory(d.latest),{id:'project-memory-open',disabled:!online()||d.stale||d.missing||!d.latest||s.busy}),newItem&&button('放弃这份草稿',()=>{s.confirmation={id,kind:'discard'};render();document.getElementById('project-remove-cancel')?.focus({preventScroll:true});},{id:'project-discard',disabled:s.busy}),!newItem&&button('移除索引卡片',()=>{if(canWrite()){s.confirmation={id,version:d.version,kind:'remove'};render();document.getElementById('project-remove-cancel')?.focus({preventScroll:true});}},{id:'project-remove',disabled:!canWrite()}))));
   if(s.confirmation?.id===id)panel.append(el('section',{class:'md-confirm',role:'group','aria-label':newItem?'确认放弃新建草稿':'确认移除索引卡片',onKeydown:e=>{if(e.key==='Escape'){e.preventDefault();cancelRemove();}}},el('h3',{},newItem?'放弃这份新建草稿？':'移除这张索引卡片？'),el('p',{},newItem?'只清除本页草稿，已经保存的卡片仍保留。操作结果未知时，请先核对列表。':'不删除项目文件、Codex 任务或陪伴记忆。'),el('p',{},d.latest?.name||d.form.name),button(newItem?'确认放弃草稿':'确认移除卡片',()=>{if(newItem){s.drafts.delete('new');s.selected=null;s.confirmation=null;render();document.getElementById('project-new')?.focus({preventScroll:true});}else mutate('remove');},{id:'project-remove-confirm',disabled:newItem?s.busy:!canWrite()}),button(newItem?'保留草稿':'保留卡片',cancelRemove,{id:'project-remove-cancel',disabled:s.busy})));
   if(!newItem)panel.append(el('details',{class:'project-metadata'},el('summary',{},'索引信息'),definition([['稳定标识',id],['最近保存',time(d.latest?.updatedAt)]])));
   return panel;

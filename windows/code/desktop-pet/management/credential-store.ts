@@ -1,5 +1,5 @@
 import { normalizeApiKey } from '../core/api-key.js';
-import { isPrivateFileSync, restrictPrivatePathSync } from '../core/platform-files.js';
+import { isPrivateDirectorySync, isPrivateFileSync, restrictPrivatePathSync } from '../core/platform-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
@@ -19,7 +19,7 @@ export function managedCredentialDirectory(projectRoot:string, home=homedir()):s
 }
 function assertOwned(path:string,directory=false):void {
   const stat=lstatSync(path);
-  if(stat.isSymbolicLink() || (directory?!stat.isDirectory():!stat.isFile()) || (process.platform==='win32' ? !directory&&!isPrivateFileSync(path) : (stat.mode&0o077)!==0 || process.getuid&&stat.uid!==process.getuid()))
+  if(stat.isSymbolicLink() || (directory ? !isPrivateDirectorySync(path) : !isPrivateFileSync(path)))
     fail('unavailable','本机凭据存储权限不符合要求。');
 }
 function readOwned(path:string):string {

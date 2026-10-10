@@ -116,7 +116,7 @@ test('background plans retain epoch, exact source version and forged scope prote
     const pending=port.prepareBackgroundTurn(owned,'current','记住种花',signal()), input=await entered.promise;
     let plan:MemoryTurnPlan={...none(input),changes:[change({type:'add',id:'late',text:'喜欢种花',sourceIds:['raw']},'late',owned)]};
     if(guard==='epoch')store.apply(change({type:'update',id:'external',expectedVersion:1,text:'开始种花',sourceIds:['raw']},'external-update',owned));
-    if(guard==='source-version') { const db=new Database(f.filename); db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='raw'").run(); db.close(); }
+    if(guard==='source-version') { const db=f.track(new Database(f.filename)); db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='raw'").run(); db.close(); }
     if(guard==='plan-scope')plan={...plan,scope:{...owned,sessionId:'forged'}};
     if(guard==='change-scope')plan={...plan,changes:[{...plan.changes[0]!,scope:scope('sweetheart')}]};
     if(guard==='disposition-version')plan={...none(input),request:'forget',suppressSources:[{id:'raw',version:100}]};

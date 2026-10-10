@@ -1,6 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, rmdir, writeFile, readFile, unlink, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, unlink, symlink, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ForwardReceipts } from '../../harness/receipts.js';
@@ -10,10 +10,9 @@ import { SqliteProjectIndex } from '../../projects/sqlite-project-index.js';
 import { EvaluationBudget } from '../../core/evaluation-budget.js';
 import { harnessAccounting } from '../../harness/accounting.js';
 import type { RelayMetrics, RelayTerminal } from '../../harness/connection.js';
-import { isPrivateFileSync } from '../../core/platform-files.js';
 
 async function fixture(t: TestContext) {
-  const parent = resolve('../../.local/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W0-I/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'forward-')), projectRoot = join(root, 'project'); await mkdir(projectRoot); await writeFile(join(projectRoot, 'AGENTS.md'), 'Synthetic project entry.');
   const protectedFile = join(root, 'companion.sqlite'); await writeFile(protectedFile, 'Protected synthetic companion payload');
   const projects = new SqliteProjectIndex(join(root, 'project-index.sqlite'));
@@ -61,19 +60,15 @@ test('unknown App response survives restart and cannot cause automatic redeliver
   assert.equal(f.state.sends.length, 1); assert.equal(f.state.hostCalls, 0);
 });
 
-test('project version change prevents stale confirmation; a later escaping entry link prevents App delivery', async t => {
+test('project version change prevents stale confirmation; a later escaping entry symlink prevents App delivery', async t => {
   const f = await fixture(t), service = f.service();
-  const entryDirectory = join(f.projectRoot, 'entry'), entry = join(entryDirectory, 'companion.sqlite');
-  await mkdir(entryDirectory); await writeFile(entry, 'Synthetic in-project reference');
-  const project = await f.projects.save({ expectedVersion: 0, name: 'Selected', abstract: 'Short', detailRef: { rootPath: f.projectRoot, entryFile: 'entry/companion.sqlite' } });
+  const project = await f.projects.save({ expectedVersion: 0, name: 'Selected', abstract: 'Short', detailRef: { rootPath: f.projectRoot, entryFile: 'AGENTS.md' } });
   const request = await service.prepare({ text: 'Use selected project', target: { hostId: 'local', threadId: f.threadId }, projectId: project.id, projectVersion: 1 });
   await f.projects.save({ id: project.id, expectedVersion: 1, name: 'Changed', abstract: '', detailRef: project.detailRef });
   await assert.rejects(service.confirm(request.id, 1), { code: 'version_conflict' }); assert.equal(f.state.hostCalls, 0);
   const next = await service.prepare({ text: 'Use current project', target: { hostId: 'local', threadId: f.threadId }, projectId: project.id, projectVersion: 2 });
   f.legacyConfirm(next.id);
-  await unlink(entry); await rmdir(entryDirectory);
-  // A directory junction exercises a real escape without Windows symlink privilege.
-  await symlink(f.root, entryDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+  await unlink(join(f.projectRoot, 'AGENTS.md')); await symlink(f.protectedFile, join(f.projectRoot, 'AGENTS.md'));
   assert.equal((await service.sendConfirmed(next.id)).phase, 'unavailable'); assert.equal(f.state.sends.length, 0);
   assert.equal(await readFile(f.protectedFile, 'utf8'), 'Protected synthetic companion payload');
 });
@@ -129,7 +124,7 @@ test('exact Harness failure with missing usage exits forwarding without retry or
 
 test('new receipt database is owner-only and a future schema is refused without mutation', async t => {
   const f = await fixture(t), service = f.service(), file = join(f.root, 'harness-relay.sqlite');
-  assert.equal(isPrivateFileSync(file), true); await service.close();
+  assert.equal((await stat(file)).mode & 0o077, 0); await service.close();
   const bytes = await readFile(file); await f.service().close(); assert.deepEqual(await readFile(file), bytes);
   bytes.writeUInt32BE(3, 60); await writeFile(file, bytes);
   assert.throws(() => f.service(), { code: 'invalid_request' }); assert.deepEqual(await readFile(file), bytes);

@@ -185,7 +185,7 @@ test('fictional introduction acknowledgement persists through profile port witho
 });
 
 test('actual desktop display and BackendSession persist opening ack in SQLite across reopen without producing memory', async t => {
-  const parent = resolve('../../.local/companion-step1-01/tmp');
+  const parent = resolve('../../artifacts/W0-I/companion-step1-01/tmp');
   mkdirSync(parent, {recursive:true});
   const directory = mkdtempSync(join(parent, 'opening-'));
   t.after(() => rmSync(directory, {recursive:true, force:true}));

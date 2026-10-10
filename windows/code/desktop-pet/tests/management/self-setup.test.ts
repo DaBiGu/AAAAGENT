@@ -1,13 +1,13 @@
-import { isPrivateFileSync, restrictPrivatePathSync } from '../../core/platform-files.js';
 import test from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
+import { isPrivateFileSync, restrictPrivatePathSync } from '../../core/platform-files.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, chmodSync, writeFileSync } from 'node:fs';
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { ManagedCredentialStore, acquireSetupLock } from '../../management/credential-store.js';
 function fixture(t:test.TestContext){const root=realpathSync(mkdtempSync(join(tmpdir(),'self-setup-50-')));t.after(()=>rmSync(root,{recursive:true,force:true}));const project=join(root,'project');mkdirSync(project);return {root,project,directory:join(root,'private','keys')};}
-const key='sk-fixture-only';
+const key='sk-synthetic-not-a-real-credential';
 test('first view creates no credential storage; save returns only reference and preserves old key versions',t=>{
  const f=fixture(t),store=new ManagedCredentialStore(f.project,f.directory);assert.deepEqual(store.entries(),[]);assert.throws(()=>statSync(f.directory));
  const first=store.save({provider:'dashscope',key,expectedRevision:0,operationId:'synthetic-one'});
@@ -24,11 +24,13 @@ test('reopened state rejects stale saves, repeats exact completed operation safe
  try{other.save({...input,key:'invalid-'+key});assert.fail();}catch(error){assert.equal(String(error).includes(key),false);}
  assert.equal(other.entries().length,1);
 });
-test('credential store rejects project-local paths and unsafe directories without rewriting existing files',{skip:process.platform==='win32'},t=>{
+test('credential store rejects project-local paths and unsafe directories without rewriting existing files',t=>{
  const f=fixture(t);assert.throws(()=>new ManagedCredentialStore(f.project,join(f.project,'keys')));
- mkdirSync(f.directory,{recursive:true,mode:0o700});chmodSync(f.directory,0o755);const store=new ManagedCredentialStore(f.project,f.directory);
+ mkdirSync(f.directory,{recursive:true,mode:0o700});
+ if(process.platform==='win32'){restrictPrivatePathSync(f.directory);execFileSync('icacls.exe',[f.directory,'/grant','*S-1-1-0:R'],{windowsHide:true,stdio:'pipe'});}else chmodSync(f.directory,0o755);
+ const store=new ManagedCredentialStore(f.project,f.directory);
  assert.throws(()=>store.save({provider:'deepseek',key,expectedRevision:0,operationId:'synthetic-one'}),{code:'unavailable'});
- chmodSync(f.directory,0o700);const alias=join(f.root,'linked');symlinkSync(f.directory,alias,'dir');const linked=new ManagedCredentialStore(f.project,alias);
+ restrictPrivatePathSync(f.directory);const alias=join(f.root,'linked');symlinkSync(f.directory,alias,process.platform==='win32'?'junction':'dir');const linked=new ManagedCredentialStore(f.project,alias);
  assert.throws(()=>linked.save({provider:'deepseek',key,expectedRevision:0,operationId:'synthetic-one'}),{code:'unavailable'});
 });
 

@@ -8,7 +8,7 @@ const signal=new AbortController().signal;
 const request=(turnId='s01-audio'):CallRequest=>({scope:{characterId:'companion',sessionId:'omni-seven-emotion-evaluation',turnId,generation:1},operation:'perception',model:OMNI_EVALUATION_MODEL,endpoint:OMNI_EVALUATION_ENDPOINT});
 const usage={prompt_tokens:1000,completion_tokens:20,prompt_tokens_details:{audio_tokens:28},completion_tokens_details:{text_tokens:20,audio_tokens:0}};
 async function fixture() {
-  const parent=resolve(import.meta.dirname,'../../../../../.local/memory-dynamics-01/budget-test');await mkdir(parent,{recursive:true});
+  const parent=resolve(import.meta.dirname,'../../../../../artifacts/W0-I/memory-dynamics-01/budget-test');await mkdir(parent,{recursive:true});
   const dir=await mkdtemp(resolve(parent,'case-')),file=resolve(dir,'ledger.json');
   const original={operationId:'old',model:'previous',reservedMicros:100,actualMicros:90,status:'settled'};
   await writeFile(file,JSON.stringify({batchId:'test',currency:'CNY',limitMicros:60_000_000,blocked:false,entries:[original]}));

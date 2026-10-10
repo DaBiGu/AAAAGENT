@@ -77,7 +77,7 @@ test('real import HTTP/store stays off current recent chat, survives a new backe
   const {confirmedInvitationPolicy}=await import('../../companion/invitations.js');
   const {SqliteMemoryImportManagement}=await import('../../memory/import-management.js');
   const {startManagementServer}=await import('../../management/server.js');
-  const parent=fileURLToPath(new URL('../../../../../.local/memory-import-49/tmp/',import.meta.url));
+  const parent=fileURLToPath(new URL('../../../../../artifacts/W0-I/memory-import-49/tmp/',import.meta.url));
   await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'wire-'));
   const stamp='2026-09-18T00:00:00.000Z';
   const store=new SqliteMemoryStore({filename:join(root,'companion.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=>stamp});
@@ -127,7 +127,7 @@ test('production strict provider and transport compile imported sources and sett
   const {confirmedInvitationPolicy}=await import('../../companion/invitations.js');
   const {SqliteMemoryImportManagement}=await import('../../memory/import-management.js');
   const {StrictTrialMemoryProvider,TrialTransport}=await import('../../app/trial-backend.js');
-  const parent=fileURLToPath(new URL('../../../../../.local/memory-import-49/tmp/',import.meta.url));
+  const parent=fileURLToPath(new URL('../../../../../artifacts/W0-I/memory-import-49/tmp/',import.meta.url));
   await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'strict-'));
   const store=new SqliteMemoryStore({filename:join(root,'pet.sqlite'),retention:CONFIRMED_RETENTION,invitations:confirmedInvitationPolicy('Asia/Shanghai'),clock:()=> '2026-09-18T00:00:00Z'});
   const configuration:import('../../contracts/memory-import.js').MemoryImportConfiguration={model:model.model,endpointHost:'example.invalid',batchMessages:16,maxInputBytes:32768,maxOutputTokens:2048,concurrency:1,timeoutMs:3000,budgetMode:'unlimited',limitMicros:null,inputMicrosPerToken:2,outputMicrosPerToken:8,currency:'CNY',textExportFormat:'synthetic JSONL'};

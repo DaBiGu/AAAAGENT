@@ -25,8 +25,8 @@ const observation = (source: SourceVersion, overrides: Partial<EmotionObservatio
   subject: 'user', label: '开心', intensity: 0.8, confidence: 0.9,
   provenance: 'user_explicit', sources: [source], ...overrides,
 });
-const openEmotion = (f: ReturnType<typeof setup>, store: SqliteMemoryStore) => {
-  const db = f.track(new Database(f.filename));
+const openEmotion = (run: ReturnType<typeof fixture>, store: SqliteMemoryStore) => {
+  const db = run.track(new Database(run.filename));
   return { db, emotions: new SqliteEmotionState(db, store) };
 };
 
@@ -36,7 +36,7 @@ test('additive component is idempotent, does not backfill, and survives restart'
   const legacy = append(store, 'legacy');
   let database = f.track(new Database(f.filename));
   database.exec('DROP TABLE emotion_analysis; DROP TABLE emotion_ticket; DROP TABLE emotion_message_snapshot; DROP TABLE emotion_sustained_state; DROP TABLE emotion_state_component;');
-  let opened = { db: database, emotions: new SqliteEmotionState(database, store) };
+  let opened = { db: database, emotions: new SqliteEmotionState(database, store) }; t.after(() => opened.db.open && opened.db.close());
   assert.equal(opened.emotions.message(legacy.owned, legacy.source.id), null);
 
   const current = append(store, 'current', 'current', 'current', source => [observation(source)]);
@@ -56,7 +56,7 @@ test('additive component is idempotent, does not backfill, and survives restart'
 
 test('nullable modality intensity, immutable snapshots, and independent U/M CAS are enforced', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const current = append(store, 'audio-user', 'audio-user', 'audio-user', source => [observation(source, { provenance: 'audio', intensity: null })]);
   assert.equal(emotions.message(current.owned, current.source.id)!.observations[0]!.intensity, null);
   assert.throws(() => append(store, 'bad-audio', 'bad-audio', 'bad-audio', source => [observation(source, { provenance: 'audio', intensity: 0.4 })]), /modality_intensity_must_be_null/);
@@ -94,7 +94,7 @@ test('nullable modality intensity, immutable snapshots, and independent U/M CAS 
 
 test('late, future, cancelled, and cross-session results cannot overwrite current state', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const first = append(store, 'first');
   const ticket = emotions.prepare(first.owned, first.source, [first.source]);
   const second = append(store, 'second', 'second', 'second', source => [observation(source, { label: '开心' })]);
@@ -113,7 +113,7 @@ test('late, future, cancelled, and cross-session results cannot overwrite curren
 
 test('derived evidence uses transcript lineage cutoff rather than derived creation order', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const historical = append(store, 'historical-user');
   const target = append(store, 'lineage-target');
   store.apply(change({ type: 'add', id: 'late-memory', text: '旧经历的长期记忆', sourceIds: [historical.source.id] }, 'late-memory', target.owned));
@@ -137,7 +137,7 @@ test('derived evidence uses transcript lineage cutoff rather than derived creati
 
 test('forgetting and expiry remove snapshots, analyses, tickets, and inherited state references', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const current = append(store, 'private', '私密经历', 'private', source => [observation(source, { label: '难过' })]);
   const ticket = emotions.prepare(current.owned, current.source, [current.source]);
   store.apply(change({ type: 'add', id: 'private-memory', text: '私密经历', sourceIds: [current.source.id] }, 'add-private', current.owned));
@@ -158,7 +158,7 @@ test('forgetting and expiry remove snapshots, analyses, tickets, and inherited s
 
 test('emotion affinity only breaks an exactly equal recall priority tie', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const warm = append(store, 'warm-source', '用户说自己开心', 'warm-source', source => [observation(source)]);
   const cold = append(store, 'cold-source', '普通来源');
   store.apply(change({ type: 'add', id: 'warm-parent', text: '情绪来源', sourceIds: [warm.source.id] }, 'add-warm-parent'));
@@ -174,7 +174,7 @@ test('emotion affinity only breaks an exactly equal recall priority tie', t => {
 
 test('management pagination only returns analyses for the visible message page', t => {
   const f = setup(); t.after(f.cleanup); const store = f.open();
-  const { db, emotions } = openEmotion(f, store);
+  const { db, emotions } = openEmotion(f, store); t.after(() => db.close());
   const first = append(store, 'page-one');
   const firstTicket = emotions.prepare(first.owned, first.source, [first.source]);
   const firstResult = emotions.apply(firstTicket, { user: null, companion: null } satisfies EmotionAssessment, 'dialogue');

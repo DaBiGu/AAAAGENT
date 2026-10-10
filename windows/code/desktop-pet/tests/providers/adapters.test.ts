@@ -26,7 +26,7 @@ async function captured(store: MemoryMediaStore, withImage = true): Promise<Capt
   return { scope, audio, images: withImage ? Array.from({length:3},()=>({...image})) : [], inputEndedAt: new Date().toISOString(), captureStoppedAt: new Date().toISOString() };
 }
 const perception = (emotion = 'neutral') => ({ transcript: '我没事。', emotion });
-function dialogue(): DialogueRequest { return { scope, text: '你好', context: { scope, characterPrompt: '朋友角色', recent: [{ id: 't:user', characterId: 'friend', role: 'user', text: '你好', createdAt: '2026-09-06T00:00:00Z' }], summary: '', memories: [], perception: null, inputTokenBudget: 5000 } }; }
+function dialogue(): DialogueRequest { return { scope, text: '你好', context: { scope, characterPrompt: '朋友角色', recent: [{ id: 't:user', characterId: 'friend', role: 'user', text: '你好', createdAt: '2026-09-06T00:00:00Z' }], summary: '', memories: [], perception: null, inputTokenBudget: 32768 } }; }
 const reply = { text: '我在。', expression: { emotion: 'calm', intensity: .4, delivery: '温和自然', gesture: null } };
 const memoryInput = (): MemoryMaintenanceInput => ({ scope, messages: [{ id: 'source', characterId: 'friend', role: 'user', text: '我换工作了', createdAt: new Date().toISOString() }], relevantMemories: [{ characterId: 'friend', id: 'm1', version: 2, text: '旧工作', sourceIds: ['source-old'] }, { characterId: 'friend', id: 'm2', version: 1, text: '重复工作', sourceIds: ['source-old'] }] });
 

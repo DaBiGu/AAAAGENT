@@ -21,7 +21,7 @@ const input: MemoryTurnInput = { scope: { characterId: 'companion', sessionId: '
   currentMessageId: 'current', messages: [{ characterId: 'companion', id: 'current', role: 'user', text: 'hello', createdAt: '2026-09-01T00:00:00.000Z' }],
   relevantMemories: [], sources: [{ scope: { characterId: 'companion', sessionId: 'offline-phase', turnId: 'current', generation: 1 }, id: 'current', version: 1,
     kind: 'transcript', messageRole: 'user', text: 'hello', createdAt: '2026-09-01T00:00:00.000Z', sourceVersions: [], evidenceEligible: true }] };
-const ledger = '.local/model-evaluation/budget.json';
+const ledger = 'artifacts/W0-I/model-evaluation/budget.json';
 async function phaseHarness(t: TestContext, phaseId: SemanticPhaseId = SEMANTIC_PHASE) {
   const root = await mkdtemp(join(tmpdir(), 'semantic-phase-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -183,7 +183,7 @@ test('recheck failure keeps the full reservation and stops only its own phase wi
   const stopped = await h.read(`${h.profile.directory}/STOPPED.json`); assert.equal(stopped.phaseId, SEMANTIC_RECHECK_PHASE); assert.equal(stopped.attempts, 1);
   await assert.rejects(beginSemanticCase(h.root, 'semantic-recheck-after-failure', signal(), SEMANTIC_RECHECK_PHASE), /stopped/);
   for (const path of h.old) assert.equal(semanticHash(await readFile(join(h.root, path))), h.config.artifactPins[path]);
-  await assert.rejects(access(join(h.root, '.local/model-evaluation/backend.lock')));
+  await assert.rejects(access(join(h.root, 'artifacts/W0-I/model-evaluation/backend.lock')));
 });
 
 test('recheck shared funds and prior-snapshot disagreement reject before claim or ledger transaction', async t => {
@@ -256,7 +256,7 @@ async function proHarness(t: TestContext) {
   await h.write(`${baselineDirectory}/config.json`, { phaseId: baselineId, model: SEMANTIC_MODEL, parameters: SEMANTIC_PARAMETERS,
     promptSha256: semanticHash(format.system), artifactPins: { [`${baselineDirectory}/requests.json`]: baselineRequestHash } });
   const baselineConfigHash = semanticHash(await readFile(join(h.root, baselineDirectory, 'config.json')));
-  const pricingPath = '.local/test-only-pro-pricing.json'; await h.write(pricingPath, { testOnly: 'Synthetic pricing binding;not official source evidence' });
+  const pricingPath = 'artifacts/W0-I/test-only-pro-pricing.json'; await h.write(pricingPath, { testOnly: 'Synthetic pricing binding;not official source evidence' });
   const pricingHash = semanticHash(await readFile(join(h.root, pricingPath)));
   Object.assign(h.config, { batchVersion: 2, model: SEMANTIC_PRO_MODEL, reservationMicros: 11_000_000, phaseLimitMicros: 12_000_000,
     promptSha256: semanticHash(format.system), comparison: { phaseId: baselineId, configSha256: baselineConfigHash, requestSha256: baseline.requestSha256 }, pricingEvidence: { path: pricingPath, sha256: pricingHash } });
@@ -549,12 +549,12 @@ test('explicit10to20 migration preserves every entry and rejects locks, active b
     if (mode === 'unknown') { h.state.entries[0]!.status = 'unknown'; h.state.entries[0]!.actualMicros = null; }
     if (mode === 'wrong-currency') Object.assign(h.state, { currency: 'USD' });
     await h.write(ledger, h.state); const before = await readFile(join(h.root, ledger));
-    if (mode === 'backend-lock') await h.write('.local/model-evaluation/backend.lock', { owner: 'test-other-writer' });
+    if (mode === 'backend-lock') await h.write('artifacts/W0-I/model-evaluation/backend.lock', { owner: 'test-other-writer' });
     if (mode === 'budget-lock') await h.write(`${ledger}.lock`, { owner: 'test-other-writer' });
     if (mode === 'valid') {
       await migrateSemanticBudget20(h.root); const after = await h.read(ledger);
       assert.deepEqual({ ...after, limitMicros: 10_000_000 }, h.state);
-      assert.deepEqual(await readFile(join(h.root, '.local/model-evaluation/limit-20-v1/before.json')), before);
+      assert.deepEqual(await readFile(join(h.root, 'artifacts/W0-I/model-evaluation/limit-20-v1/before.json')), before);
       await assert.rejects(migrateSemanticBudget20(h.root)); assert.deepEqual(await h.read(ledger), after);
     } else { await assert.rejects(migrateSemanticBudget20(h.root)); assert.deepEqual(await readFile(join(h.root, ledger)), before); }
   }
@@ -574,7 +574,7 @@ test('registered cancellation keeps credentials unread and unknown usage retains
     if (mode === 'unknown') { assert.equal(after.entries[3].status, 'unknown'); assert.equal(after.entries[3].actualMicros, null); assert.equal(after.entries[3].reservedMicros, 3_700_000); }
     else assert.deepEqual(after, before);
     await assert.rejects(loadSemanticPhase(h.root, true, h.profile.phaseId), /stopped/);
-    await assert.rejects(access(join(h.root, '.local/model-evaluation/backend.lock')));
+    await assert.rejects(access(join(h.root, 'artifacts/W0-I/model-evaluation/backend.lock')));
   }
 });
 
@@ -704,9 +704,9 @@ function originalDeclarationWire(draft: SemanticDeclaration, format: MemorySeman
 test('preserved real raw-only none remains a semantic failure beside the valid original declaration', { skip: !process.env.W0_I_SEMANTIC_ROOT }, async t => {
   const root = resolve(process.env.W0_I_SEMANTIC_ROOT!), savedOut = process.env.W2_SEMANTIC_SCOPE_OUT;
   const out = savedOut ? resolve(savedOut) : await mkdtemp(join(tmpdir(), 'semantic-scope-pair-'));
-  if (savedOut) { assert.ok(out.startsWith(`${root}/.local/`)); await mkdir(out, { recursive: false }); }
+  if (savedOut) { assert.ok(out.startsWith(`${root}/artifacts/`)); await mkdir(out, { recursive: false }); }
   else t.after(() => rm(out, { recursive: true, force: true }));
-  const phase = '.local/memory-semantic-offline-v1/phase', run = `${phase}/runs/semantic-raw-only-01`;
+  const phase = 'artifacts/W0-I/memory-semantic-offline-v1/phase', run = `${phase}/runs/semantic-raw-only-01`;
   const pins: Record<string, string> = {
     [`${run}/wire-responses.jsonl`]: '1230ef37256f7c201627aca649af4b35efaf6b2497a050917a3f6dcb79998551',
     [`${run}/attempts.json`]: 'b529a84bbde41d2d33f24cfc515b037d3359e77a69efd1fa16af3a496bb69432',
@@ -722,7 +722,7 @@ test('preserved real raw-only none remains a semantic failure beside the valid o
   assert.deepEqual(JSON.parse(raw.toString()), savedResponse.raw); assert.equal(wire.rawSha256, savedResponse.rawSha256);
   const originals = await loadOriginalSemanticCases(root), fixture = originals.cases.find(f => f.id === 'raw-only')!; assert.ok(fixture);
   assert.equal(semanticInputHash(fixture.input), semanticInputHash(savedRequest.input));
-  const base = '.local/memory-planning-evidence-v2', originalPath = `${base}/merged-originals/raw-only.json`;
+  const base = 'artifacts/W0-I/memory-planning-evidence-v2', originalPath = `${base}/merged-originals/raw-only.json`;
   const review = JSON.parse(await readFile(join(root, base, 'review.json'), 'utf8'));
   pins[originalPath] = review.artifactHashes['merged-originals/raw-only.json']; Object.assign(pins, originals.inputPins);
   const original = await readPinned(originalPath), outcomes: object[] = [];
@@ -778,10 +778,10 @@ test('preserved real raw-only none remains a semantic failure beside the valid o
 test('context-v2 rejects preserved legacy offsets and gap while independent human coverage controls remain strict', { skip: !process.env.W0_I_SEMANTIC_ROOT }, async t => {
   const root = resolve(process.env.W0_I_SEMANTIC_ROOT!), savedOut = process.env.W2_SEMANTIC_QUOTE_OUT;
   const out = savedOut ? resolve(savedOut) : await mkdtemp(join(tmpdir(), 'semantic-quote-test-'));
-  if (savedOut) { assert.ok(out.startsWith(`${root}/.local/`)); await mkdir(out, { recursive: false }); }
+  if (savedOut) { assert.ok(out.startsWith(`${root}/artifacts/`)); await mkdir(out, { recursive: false }); }
   else t.after(() => rm(out, { recursive: true, force: true }));
-  const gapRun = '.local/semantic-raw-recheck-v1/runs/semantic-raw-recheck-20260909-one';
-  const offsetRun = '.local/semantic-batches/memory-semantic-batch-20260909-01/runs/semantic-batch20-20260909-01-raw';
+  const gapRun = 'artifacts/W0-I/semantic-raw-recheck-v1/runs/semantic-raw-recheck-20260909-one';
+  const offsetRun = 'artifacts/W0-I/semantic-batches/memory-semantic-batch-20260909-01/runs/semantic-batch20-20260909-01-raw';
   const pins: Record<string, string> = {
     [`${gapRun}/wire-responses.jsonl`]: '868bb481997f08ed0df84e0f1390f9bfcacb243bd2065775380aebcb4068fe9b',
     [`${gapRun}/attempts.json`]: 'cb71dedb9feaa30376c2872dea33d7378abfb1c088d05f38012c04d7acd1c876',
@@ -807,7 +807,7 @@ test('context-v2 rejects preserved legacy offsets and gap while independent huma
   assert.match(offset.result.error.message, /Invalid semantic quote code-point start/);
   const originals = await loadOriginalSemanticCases(root), fixture = originals.cases.find(f => f.id === 'raw-only')!; assert.ok(fixture);
   for (const old of [gap, offset]) assert.equal(semanticInputHash(fixture.input), semanticInputHash(old.request.input));
-  const base = '.local/memory-planning-evidence-v2', originalPath = `${base}/merged-originals/raw-only.json`;
+  const base = 'artifacts/W0-I/memory-planning-evidence-v2', originalPath = `${base}/merged-originals/raw-only.json`;
   const review = JSON.parse(await readFile(join(root, base, 'review.json'), 'utf8'));
   pins[originalPath] = review.artifactHashes['merged-originals/raw-only.json']; Object.assign(pins, originals.inputPins);
   const original = await readPinned(originalPath), valid: SemanticDeclaration = original.traces[0].declaration;
@@ -886,9 +886,9 @@ test('context-v2 rejects preserved legacy offsets and gap while independent huma
 test('original nine cases pass strict injected response, real SQLite ticket/expansion/commit and actual context checks', { skip: !process.env.W0_I_SEMANTIC_ROOT }, async t => {
   const root = resolve(process.env.W0_I_SEMANTIC_ROOT!), savedOut = process.env.W2_SEMANTIC_ORIGINALS_OUT ?? process.env.W0_I_SEMANTIC_OUT;
   const out = savedOut ? resolve(savedOut) : await mkdtemp(join(tmpdir(), 'semantic-originals-test-'));
-  if (savedOut) { assert.ok(out.startsWith(process.env.W2_SEMANTIC_ORIGINALS_OUT ? `${root}/.local/worktrees/W2/.local/semantic-quote-repair-v1/` : `${root}/.local/memory-semantic-offline-v1/`)); await mkdir(out, { recursive: false }); }
+  if (savedOut) { assert.ok(out.startsWith(process.env.W2_SEMANTIC_ORIGINALS_OUT ? `${root}/artifacts/worktrees/W2/artifacts/W2/semantic-quote-repair-v1/` : `${root}/artifacts/W0-I/memory-semantic-offline-v1/`)); await mkdir(out, { recursive: false }); }
   else t.after(() => rm(out, { recursive: true, force: true }));
-  const originalBase = '.local/memory-planning-evidence-v2', review = JSON.parse(await readFile(`${root}/${originalBase}/review.json`, 'utf8'));
+  const originalBase = 'artifacts/W0-I/memory-planning-evidence-v2', review = JSON.parse(await readFile(`${root}/${originalBase}/review.json`, 'utf8'));
   const originals = await loadOriginalSemanticCases(root), results: object[] = [], ticketInputs: Record<string, MemoryTurnInput> = {};
   const pins = { ...originals.inputPins };
   for (const fixture of originals.cases) {
@@ -1008,7 +1008,7 @@ test('system comparison retains high-mode cost accounting and stops on malformed
 
 test('system comparison actual evaluator sends frozen Pro high bytes with an injected response and isolated ledger', { skip: !process.env.W0_I_SEMANTIC_ROOT }, async t => {
   const root = resolve(process.env.W0_I_SEMANTIC_ROOT!), originals = await loadOriginalSemanticCases(root);
-  const prior = JSON.parse(await readFile(`${root}/.local/memory-planning-evidence-v2/merged-originals/raw-only.json`, 'utf8'));
+  const prior = JSON.parse(await readFile(`${root}/artifacts/W0-I/memory-planning-evidence-v2/merged-originals/raw-only.json`, 'utf8'));
   const h = await systemComparisonHarness(t, prior.traces[0].input);
   execFileSync('git', ['init', '--quiet'], { cwd: h.root });
   execFileSync('git', ['-c', 'user.name=Controlled Test', '-c', 'user.email=controlled@localhost', 'commit', '--quiet', '--allow-empty', '-m', 'Isolated evaluator fixture'], { cwd: h.root });
@@ -1016,7 +1016,7 @@ test('system comparison actual evaluator sends frozen Pro high bytes with an inj
     const bytes = await readFile(`${root}/${path}`); assert.equal(semanticHash(bytes), hash);
     await mkdir(dirname(join(h.root, path)), { recursive: true }); await writeFile(join(h.root, path), bytes); h.config.artifactPins[path] = hash;
   }
-  const manifestPath = '.local/prompt-trial-inputs/manifest.json';
+  const manifestPath = 'artifacts/W0-I/prompt-trial-inputs/manifest.json';
   const manifest = await readFile(`${root}/${manifestPath}`); await writeFile(join(h.root, manifestPath), manifest);
   await h.publish(); let keys = 0, posts = 0;
   const oldFetch = globalThis.fetch; globalThis.fetch = async (_url, init) => {

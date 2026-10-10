@@ -46,3 +46,12 @@ id_ed25519*
 *.7z
 **/management/ui/presentation-preview.js
 **/node_modules/
+
+# T3's four statically imported UI sounds are CC0; see the adjacent NOTICE.
+!/t3-source/apps/web/src/assets/notification-completion.mp3
+!/t3-source/apps/web/src/assets/notification-input.mp3
+!/t3-source/apps/web/src/assets/snap-shot-click.mp3
+!/t3-source/apps/web/src/assets/snap-shot-whoosh.mp3
+
+# This merged font includes glyph sources without established redistribution terms.
+/t3-source/apps/web/src/terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2

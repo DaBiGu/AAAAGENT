@@ -12,15 +12,15 @@ const {prepareTextUpdate}=await import(pathToFileURL(join(project,'tools/deepsee
 const {installTrialUpdate,inspectTrialUpdate}=await import(pathToFileURL(join(project,'tools/install-trial-update.mjs')).href);
 const hash=(b:string|Uint8Array)=>createHash('sha256').update(b).digest('hex');
 async function prepared(t:Parameters<typeof fixture>[0], voice=false) {
- const f=await fixture(t),root=f.c.projectRoot,candidate=join(root,'candidate'),directory=join(root,'.local/model-evaluation/trial/user-trial');
+ const f=await fixture(t),root=f.c.projectRoot,candidate=join(root,'candidate'),directory=join(root,'artifacts/W0-I/model-evaluation/trial/user-trial');
  await mkdir(directory,{recursive:true});
  for(const p of Object.keys(f.c.runtimeFiles)) {await mkdir(dirname(join(root,p)),{recursive:true});await writeFile(join(root,p),'controlled');await mkdir(dirname(join(candidate,p)),{recursive:true});await writeFile(join(candidate,p),'candidate');}
  const config=join(directory,'config.json'),activation=join(directory,'activation.json'),settings=join(directory,'management-settings.json');
  await writeFile(config,JSON.stringify(f.c));await writeFile(activation,await readFile(f.activationFile));
  const settingsBytes=JSON.stringify({version:1,current:{revision:1,savedAt:'old',settings:defaultManagedSettings(f.c)},history:[]});await writeFile(settings,settingsBytes);
- const review=await prepareTrialUpdate({projectRoot:root,candidateRoot:candidate,sourceRevision:'b'.repeat(40),outputDirectory:'.local/deepseek-text-01/update'});
+ const review=await prepareTrialUpdate({projectRoot:root,candidateRoot:candidate,sourceRevision:'b'.repeat(40),outputDirectory:'artifacts/W0-I/deepseek-text-01/update'});
  const {prepareVoiceUpdate}=await import(pathToFileURL(join(project,'tools/voice-pipeline-update.mjs')).href);
- const plan=await (voice?prepareVoiceUpdate:prepareTextUpdate)(join(candidate,'.local/deepseek-text-01/update/plan.json'));
+ const plan=await (voice?prepareVoiceUpdate:prepareTextUpdate)(join(candidate,'artifacts/W0-I/deepseek-text-01/update/plan.json'));
  return {...f,root,candidate,config,activation,settings,settingsBytes,plan,review};
 }
 test('text update transaction preserves historical settings and ledger and rejects unrelated model changes',async t=>{

@@ -1,5 +1,6 @@
 import {el,button,badge,notice,card,field,select,definition,time,statuses,slots,kinds} from './dom.mjs';
 import {changes,providerChoice} from './api.mjs';
+import {budgetComparison,contextBudgetView,budgetProblem} from './context-budget-view.mjs';
 const options=map=>Object.entries(map).map(([value,label])=>({value,label}));
 const canSave=a=>a.s.connection==='online';
 const moduleDetail=m=>m.id==='invitations'?'暂未开放':m.detail;
@@ -25,9 +26,15 @@ function settingsNotices(a){const {s}=a;const items=[];
  if(s.settingsConflict){const edited=changes(s.settingsBase,s.settingsDraft);items.push(notice('配置版本已变化。本页修改尚未保存；请比较下方差异，再决定是否保留自己的修改。','warning'),el('div',{class:'tablescroll'},el('table',{},el('thead',{},el('tr',{},el('th',{},'修改项'),el('th',{},'本页草稿'),el('th',{},'最新已保存'))),el('tbody',{},edited.map(c=>el('tr',{},el('td',{},c.path.join(' / ')),el('td',{},String(c.after??'未设置')),el('td',{},String(c.path.reduce((v,k)=>v?.[k],s.settingsLatest?.saved)??'未设置'))))))),button('核对后保留我的修改',a.reviewSettings,{id:'settings-review',disabled:!s.settingsLatest||s.pending.has('settings')}));}
  return items;
 }
-function settingsActions(a){return el('div',{class:'actions'},button(a.s.pending.has('settings')?'正在保存…':'保存配置，重启后生效',a.saveSettings,{id:'settings-save',class:'primary',disabled:!canSave(a)||a.selfSetup?.available()&&!a.selfSetup.validBindings(a.s.settingsDraft)||a.s.settingsConflict||a.s.pending.has('settings')}));}
-function contextSettings(a){const {s}=a,c=s.settingsDraft?.context;if(!c)return el('div');const labels={maxRecentMessages:'近期对话条数',maxMemories:'长期记忆条数',summaryLimit:'选入上下文的摘要条数',summaryMinMessages:'开始生成摘要的消息数',summaryMaxMessages:'单次摘要消息数',timeoutMs:'模型请求超时（毫秒）'};
- return card('检索与上下文配置',el('p',{class:'subtle'},'控制各类内容的选取范围；不修改已有记录正文。'),...settingsNotices(a),el('div',{class:'form-grid'},Object.entries(labels).map(([key,label])=>field(label,'context-'+key,c[key],v=>a.editSetting(['context',key],Number(v)),{type:'number',min:0,step:1,disabled:s.pending.has('settings')}))),settingsActions(a));
+function settingsActions(a){return el('div',{class:'actions'},budgetProblem(a.s.settingsDraft?.context)&&notice(budgetProblem(a.s.settingsDraft?.context),'warning'),button(a.s.pending.has('settings')?'正在保存…':'保存配置，重启后生效',a.saveSettings,{id:'settings-save',class:'primary',disabled:!canSave(a)||!!budgetProblem(a.s.settingsDraft?.context)||a.selfSetup?.available()&&!a.selfSetup.validBindings(a.s.settingsDraft)||a.s.settingsConflict||a.s.pending.has('settings')}));}
+function contextSettings(a){const {s}=a,c=s.settingsDraft?.context;if(!c)return el('div');
+ const edit=(key,v)=>{a.editSetting(['context',key],v===''?NaN:Number(v));a.render();};
+ const number=(key,label,min=0,max=Number.MAX_SAFE_INTEGER,hint='')=>field(label,'context-'+key,c[key],v=>edit(key,v),{type:'number',min,max,step:1,hint,disabled:s.pending.has('settings')});
+ return card('上下文预算',el('p',{class:'subtle'},'近期完整对话优先，摘要与相关长期记忆随后按可用容量选入。'),...settingsNotices(a),
+   el('div',{class:'form-grid'},number('targetInputTokens','输入预算（Token）',1,Number.MAX_SAFE_INTEGER,'默认 200K（200,000），实际容量受模型接口与输出预留约束。'),number('currentEmotionReserveTokens','当前双方情绪预留（Token）',0,Number.isSafeInteger(c.targetInputTokens)?c.targetInputTokens:Number.MAX_SAFE_INTEGER,'简短情绪背景的上限；未使用的空间可用于近期对话。')),
+   budgetComparison(s.snapshot.settings),el('h3',{class:'section-gap'},'后台摘要 · 独立预算'),
+   el('p',{class:'subtle'},'以下设置控制后台摘要整理。默认 12 条触发、每批最多 24 条。'),
+   el('div',{class:'form-grid'},number('summaryMinMessages','后台摘要触发消息数'),number('summaryMaxMessages','后台摘要每批消息数'),number('timeoutMs','模型请求超时（毫秒）')),settingsActions(a));
 }
 export function memoryView(a) {
   const {s}=a;
@@ -56,7 +63,7 @@ function promptView(a){const {s}=a,d=s.prompts.get(s.character),pending=s.pendin
 }
 function contextView(a){const {s}=a,c=s.context;const form=el('form',{class:'card',onSubmit:e=>{e.preventDefault();a.loadContext()}},el('h2',{},'当前上下文试算 · 非实际历史'),field('试算检索问题','context-query',s.contextQuery,v=>s.contextQuery=v,{placeholder:'例如：下周有什么安排？'}),el('div',{class:'actions'},el('button',{type:'submit',class:'primary',disabled:s.pending.has('context')},s.pending.has('context')?'读取中…':'试算当前上下文')),el('small',{},'按当前数据重新组装，不是历史实际使用记录；不向模型发起对话。历史请查看“实际召回”。'));
  if(!c)return form;
- return el('div',{},form,notice(c.note||'以下为当前角色的上下文查询结果。'),card('角色设定',block(c.prompt)),[['近期对话',c.recent],['会话摘要',c.summaries],['相关长期记忆',c.memories]].map(([title,records])=>card(title+' · '+records.length,records.length?records.map(r=>el('div',{},el('small',{},r.id+' · v'+r.version+' · '+time(r.createdAt)+' · 来源：'+(({manual:'人工编辑',automatic:'自动维护',conversation:'对话'})[r.origin]||'未知')),block(r.text))):el('p',{class:'empty'},'本次没有选入记录。'))));
+ return el('div',{},form,notice(c.note||'以下为当前角色的上下文查询结果。'),card('本次试算',definition([['角色',c.characterId],['数据版本',c.revision],['检索问题',c.query||'（空）']]),contextBudgetView(c.contextBudget)),card('角色设定',block(c.prompt)),[['近期对话',c.recent],['会话摘要',c.summaries],['相关长期记忆',c.memories]].map(([title,records])=>card(title+' · '+records.length,records.length?records.map(r=>el('div',{},el('small',{},r.id+' · v'+r.version+' · '+time(r.createdAt)+' · 来源：'+(({manual:'人工编辑',automatic:'自动维护',conversation:'对话'})[r.origin]||'未知')),block(r.text))):el('p',{class:'empty'},'本次没有选入记录。'))));
 }
 export function modelsView(a) {
   const {s}=a,settings=s.snapshot.settings;
@@ -74,7 +81,7 @@ export function modelsView(a) {
   const editor=s.providerSlot?el('div',{},el('div',{class:'label-row section-gap'},el('h2',{},'编辑：'+slots[s.providerSlot]),button('收起配置',()=>{s.providerSlot=null;a.render()})),providerForm(a,s.providerSlot,slots[s.providerSlot])):null;
   const history=el('details',{class:'card'},el('summary',{},'配置历史与回滚'),el('p',{class:'subtle section-gap'},'回滚保存为新的配置版本，重启后生效。回滚会替换当前表单草稿，请先核对。'),
     settings.history.length?el('div',{class:'record-list'},settings.history.map(h=>el('div',{class:'label-row'},el('span',{},`版本 ${h.revision} · ${time(h.savedAt)}`),button('回滚到此版本',()=>a.rollbackSettings(h.revision),{'data-target-revision':h.revision,disabled:!canSave(a)||s.settingsConflict||s.pending.has('settings')||h.revision===settings.revision})))):el('p',{class:'empty'},'暂时没有可回滚的保存版本。'));
-  return el('div',{},a.wake?.view(),a.selfSetup?.view(),versionStrip(settings),a.selfSetup?.available()&&a.selfSetup.modelHelp(),summaries,
+  return el('div',{},a.wake?.view(),a.selfSetup?.view(),versionStrip(settings),budgetComparison(settings),a.selfSetup?.available()&&a.selfSetup.modelHelp(),summaries,
     el('p',{class:'subtle section-gap'},settings.pending?'版本已保存，重启后生效；当前运行仍使用上方有效配置。':'表单修改需保存并重启后才生效。'),
     ...settingsNotices(a),editor,el('div',{class:'savebar'},settingsActions(a)),background,history);
 }
@@ -89,13 +96,13 @@ export function providerForm(a,slot,label){const {s}=a,current=s.snapshot.settin
  const credentials=a.selfSetup?.available()?a.selfSetup.getCredentials(draft.provider):s.snapshot.credentials;
  const credentialOptions=[{value:'',label:'请选择此服务的凭据引用'},...credentials.map(c=>({value:c.id,label:`${c.label} · ${statuses[c.status]||c.status}`,disabled:c.status!=='configured'}))];
  if(draft.credentialRef&&!credentialOptions.some(c=>c.value===draft.credentialRef))credentialOptions.push({value:draft.credentialRef,label:'当前引用不属于此供应商，请重新选择',disabled:true});
- const grid=el('div',{class:'form-grid'},select('服务商','adapter-'+slot,draft.adapterId,adapters,v=>{const next=available.find(x=>x.id===v);choose(next,next.models[0]||'')},{disabled:busy}),select('型号','model-'+slot,draft.model,models,v=>choose(adapter,v),{disabled:busy}),select('服务地址','endpoint-'+slot,draft.endpoint,(adapter?.endpoints||[draft.endpoint]).map(v=>({value:v,label:v})),v=>update('endpoint',v),{disabled:busy}),select('凭据引用','credential-'+slot,draft.credentialRef,credentialOptions,v=>update('credentialRef',v),{disabled:busy}),slot!=='asr'&&field('上下文输入上界','input-limit-'+slot,draft.inputTokenLimit,v=>update('inputTokenLimit',Number(v)),{type:'number',min:1,step:1,disabled:busy}));
+ const grid=el('div',{class:'form-grid'},select('服务商','adapter-'+slot,draft.adapterId,adapters,v=>{const next=available.find(x=>x.id===v);choose(next,next.models[0]||'')},{disabled:busy}),select('型号','model-'+slot,draft.model,models,v=>choose(adapter,v),{disabled:busy}),select('服务地址','endpoint-'+slot,draft.endpoint,(adapter?.endpoints||[draft.endpoint]).map(v=>({value:v,label:v})),v=>update('endpoint',v),{disabled:busy}),select('凭据引用','credential-'+slot,draft.credentialRef,credentialOptions,v=>update('credentialRef',v),{disabled:busy}),slot!=='asr'&&field('模型接口输入容量','input-limit-'+slot,draft.inputTokenLimit,v=>update('inputTokenLimit',Number(v)),{type:'number',min:1,max:choice?.configuration.inputTokenLimit??Number.MAX_SAFE_INTEGER,step:1,disabled:busy,hint:'可在已登记容量内向下调整；前台输入目标在总览的“上下文预算”设置。'}));
  if(slot==='tts'&&adapter?.capabilities.voice&&(choice?.voices?.length||a.selfSetup?.available()))grid.append(select('已登记音色','voice-'+slot,draft.voice||'',[{value:'',label:'请选择已登记音色'},...(choice?.voices||[]).map(v=>({value:v.id,label:v.label}))],v=>update('voice',v),{disabled:busy}));
  else if(slot==='tts'&&adapter?.capabilities.voice)grid.append(field('音色标识','voice-'+slot,draft.voice,v=>update('voice',v),{disabled:busy,hint:'填写已登记的音色标识。'}));
  if(slot==='tts'&&adapter?.capabilities.language)grid.append(field('语言','language-'+slot,draft.language,v=>update('language',v),{disabled:busy}));
  if(slot==='dialogue'&&adapter?.capabilities.temperature)grid.append(field('温度','temperature-'+slot,draft.temperature,v=>update('temperature',v===''?undefined:Number(v)),{type:'number',min:0,max:2,step:.1,disabled:busy,hint:'控制实际对话请求的随机性。'}));
  panel.append(grid,el('div',{class:'provider-support'},adapter?.status==='not_integrated'&&notice('此服务暂未开放。','warning'),adapter&&el('p',{class:'subtle'},'支持范围：'+([adapter.capabilities.instructions?'表达指令':null,adapter.capabilities.voice?'选择音色':null,adapter.capabilities.cloning?'克隆音色能力':null,adapter.capabilities.language?'语言选择':null,adapter.capabilities.temperature?'温度':null].filter(Boolean).join('、')||'基础功能'))),
- el('details',{},el('summary',{},'用量与费用详情（只读）'),definition([['输出计费范围',current.outputTokenLimit+' token；不代表回复硬截断'],['单次预留',current.reservationMicros+' 微元'],['输入单价',current.inputMicrosPerToken+' 微元 / token'],['输出单价',current.outputMicrosPerToken+' 微元 / token'],['字符单价',current.characterMicros==null?'不适用':current.characterMicros+' 微元 / 字符']]),el('small',{},'可切换型号以已登记的支持列表为准；保存时由服务校验型号与费用范围。')));return panel;
+ el('details',{},el('summary',{},'用量与费用详情（只读）'),definition([['当前输出预留',current.outputTokenLimit+' token'],['当前模型总窗口',current.contextWindowTokens==null?'未登记':current.contextWindowTokens+' token'],['单次预留',current.reservationMicros+' 微元'],['输入单价',current.inputMicrosPerToken+' 微元 / token'],['输出单价',current.outputMicrosPerToken+' 微元 / token'],['字符单价',current.characterMicros==null?'不适用':current.characterMicros+' 微元 / 字符']]),el('small',{},'可切换型号以已登记的支持列表为准；保存时由服务校验型号与费用范围。')));return panel;
 }
 export function eventsView(a) {
   const {s}=a;

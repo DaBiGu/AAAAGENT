@@ -30,15 +30,15 @@ export class DeepSeekComparisonAuthorizer implements CallAuthorizer {
   private readonly budget: EvaluationBudget;
   constructor(private readonly root: string, private readonly caseId: string) {
     assert.ok(['raw-only', 'closure', 'merge'].includes(caseId));
-    this.budget = new EvaluationBudget(`${root}/.local/model-evaluation/budget.json`, 'D09-S1-20260906-01', 10_000_000);
+    this.budget = new EvaluationBudget(`${root}/artifacts/W0-I/model-evaluation/budget.json`, 'D09-S1-20260906-01', 10_000_000);
   }
   async authorize(request: CallRequest, signal: AbortSignal): Promise<{ settle(outcome: CallOutcome): Promise<void> }> {
     assert.equal(request.operation, 'memory_turn', 'Comparison permits memory plans only');
     assert.equal(request.model, DEEPSEEK_MODEL); assert.equal(request.endpoint, DEEPSEEK_ENDPOINT);
     signal.throwIfAborted();
-    const base = `${this.root}/.local/deepseek-comparison`;
+    const base = `${this.root}/artifacts/W0-I/deepseek-comparison`;
     const baseline = JSON.parse(await readFile(`${base}/prior-budget.json`, 'utf8')) as { count: number; entriesSha256: string; estimatedMicros: number };
-    const state = JSON.parse(await readFile(`${this.root}/.local/model-evaluation/budget.json`, 'utf8')) as BudgetState;
+    const state = JSON.parse(await readFile(`${this.root}/artifacts/W0-I/model-evaluation/budget.json`, 'utf8')) as BudgetState;
     assert.equal(baseline.count, 113); assert.equal(baseline.estimatedMicros, 195738);
     assert.equal(hash(state.entries.slice(0, baseline.count)), baseline.entriesSha256, 'Previous shared budget records changed');
     assert.ok(state.entries.slice(baseline.count).every(entry => entry.operationId.startsWith(prefix)), 'Unexpected concurrent evaluation activity');
@@ -52,7 +52,7 @@ export class DeepSeekComparisonAuthorizer implements CallAuthorizer {
     return { settle: async outcome => {
       const estimate = deepseekPeakEstimate(outcome.usage);
       await this.budget.settle(operationId, estimate);
-      await appendFile(`${this.root}/.local/model-evaluation/integrated-calls.jsonl`, JSON.stringify({ operationId, phase: DEEPSEEK_PHASE, scope: request.scope, operation: request.operation, model: request.model, startedAt, completedAt: new Date().toISOString(), status: outcome.status, requestId: outcome.requestId, estimatedCostCNY: estimate === null ? null : estimate / 1_000_000, estimateBasis: 'DeepSeek official CNY peak input3/output9 per million, all input cache miss', billVerified: false, unknownCostReservationRetained: estimate === null }) + '\n', { mode: 0o600 });
+      await appendFile(`${this.root}/artifacts/W0-I/model-evaluation/integrated-calls.jsonl`, JSON.stringify({ operationId, phase: DEEPSEEK_PHASE, scope: request.scope, operation: request.operation, model: request.model, startedAt, completedAt: new Date().toISOString(), status: outcome.status, requestId: outcome.requestId, estimatedCostCNY: estimate === null ? null : estimate / 1_000_000, estimateBasis: 'DeepSeek official CNY peak input3/output9 per million, all input cache miss', billVerified: false, unknownCostReservationRetained: estimate === null }) + '\n', { mode: 0o600 });
       // Preserve a transport failure's HTTP status; the failed attempt still retains its reservation.
       if ((estimate === null && outcome.status === 'success') || (estimate !== null && estimate > DEEPSEEK_RESERVATION)) throw new Error('DeepSeek cost is unknown or exceeds the reservation; phase stopped');
     } };

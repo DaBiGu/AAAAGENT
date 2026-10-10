@@ -1,18 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readActiveTrialConfiguration, validateTrialConfiguration, type TrialConfiguration, type TrialModel, type TrialOperation } from '../../app/trial-config.js';
+import { assertRuntimeRetirements, isTrialRuntimePath, readActiveTrialConfiguration, validateTrialConfiguration, type TrialConfiguration, type TrialModel, type TrialOperation } from '../../app/trial-config.js';
 import { TrialAuthorizer, estimateTrialMicros, assertReviewedUnknownCosts } from '../../app/trial-authorizer.js';
-import { prepareTrialLaunch, trialFiles } from '../../app/trial-launcher.js';
+import { prepareTrialLaunch, preparedWorkbenchEnvironment, trialFiles, verifyTrialRuntime } from '../../app/trial-launcher.js';
 import { TrialTransport } from '../../app/trial-backend.js';
 
 const hash = (raw: string) => createHash('sha256').update(raw).digest('hex');
+test('only reviewed original/new server companion paths can enter normal runtime pins', () => {
+  const prefix = 'artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/';
+  for (const name of ['claude-history-worker.mjs', 'claude-history-worker.mjs.map',
+    'claudeHistoryWorker-x3U5XeOc.mjs', 'claudeHistoryWorker-x3U5XeOc.mjs.map',
+    'claudeHistoryWorker-ChEliiLX.mjs', 'claudeHistoryWorker-ChEliiLX.mjs.map',
+    'claudeHistoryWorker-Bz1ZNa3x.mjs', 'claudeHistoryWorker-Bz1ZNa3x.mjs.map'])
+    assert.equal(isTrialRuntimePath(prefix + name), true);
+  for (const name of ['claudeHistoryWorker-unreviewed.mjs', 'auth.json', 'node_modules/effect/index.js', '../auth.json', 'private.mjs'])
+    assert.equal(isTrialRuntimePath(prefix + name), false);
+});
+test('shared original-App transport admits only the two reviewed modules and exact source patch', () => {
+  for (const name of ['codex-shared-connection.mjs', 'codex-shared-stdio.mjs', 'patches/0022-native-input-repair.patch'])
+    assert.equal(isTrialRuntimePath('code/workbench/integration/'+name), true);
+  for (const name of ['codex-shared-connection.test.mjs', 'codex-shared-stdio.test.mjs', 'codex-shared-unreviewed.mjs', '../auth.json'])
+    assert.equal(isTrialRuntimePath('code/workbench/integration/'+name), false);
+});
+test('a complete reviewed server companion replacement cannot retire unrelated source or the server entry', () => {
+  const prefix='artifacts/runtime/engine-pin-54/t3-runtime/apps/server/dist/';
+  const retired=[prefix+'claudeHistoryWorker-ChEliiLX.mjs',prefix+'claudeHistoryWorker-ChEliiLX.mjs.map'];
+  const current=Object.fromEntries([prefix+'bin.mjs',...retired].map(p=>[p,'a'.repeat(64)]));
+  const next=[prefix+'claude-history-worker.mjs',prefix+'claudeHistoryWorker-Bz1ZNa3x.mjs',prefix+'claudeHistoryWorker-Bz1ZNa3x.mjs.map'];
+  assert.doesNotThrow(()=>assertRuntimeRetirements(current,next,retired));
+  assert.throws(()=>assertRuntimeRetirements(current,[],retired),/exact replaced/);
+  assert.throws(()=>assertRuntimeRetirements(current,next,[prefix+'bin.mjs']),/exact replaced/);
+  const source='code/workbench/integration/codex-shared-connection.mjs';
+  assert.throws(()=>assertRuntimeRetirements({...current,[source]:'b'.repeat(64)},next,[source]),/exact replaced/);
+});
+test('rich memory trial allows only its exact workbench runtime module', () => {
+  assert.equal(isTrialRuntimePath('code/workbench/integration/dsh-rich-memory-trial.mjs'), true);
+  for (const path of ['code/workbench/integration/dsh-rich-memory-trial.test.mjs',
+    'code/workbench/integration/unreviewed.mjs',
+    'code/workbench/integration/../dsh-rich-memory-trial.mjs',
+    'code/workbench/integration/dsh-rich-memory-trial.mjs/extra']) {
+    assert.equal(isTrialRuntimePath(path), false);
+  }
+});
 const scope = { characterId: 'friend' as const, sessionId: 'session', turnId: 'turn', generation: 1 };
 async function fixture(t: { after(fn: () => Promise<void>): void }, smoke = false) {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/companion-step1-01/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-I/companion-step1-01/tmp');
   await mkdir(parent, { recursive: true });
   const projectRoot = await mkdtemp(join(parent, 'trial-config-')); t.after(() => rm(projectRoot, { recursive: true, force: true }));
   const chat: TrialModel = { provider: 'dashscope', model: 'qwen-plus-2025-12-01', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
@@ -22,7 +59,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, smoke = fals
   const c: TrialConfiguration = { version: 1, product: 'companion-v1', phaseId: 'local-trial-controlled', purpose: smoke ? 'smoke-text' : 'user-trial', ...(smoke ? {smokeInput:'合成文字'} : {}), projectRoot, sourceRevision: 'a'.repeat(40),
     runtimeFiles: Object.fromEntries(['dist/app/trial-backend.js', 'dist/app/trial-launcher.js', 'desktop/build/renderer.js',
       'desktop/build/星月陪伴.app/Contents/MacOS/DesktopPet'].map(p => [`code/desktop-pet/${p}`, hash('controlled')])),
-    database: join(projectRoot, '.local/data/companion.sqlite'), budgetFile: join(projectRoot, '.local/model-evaluation/budget.json'),
+    database: join(projectRoot, 'data/desktop-pet/companion.sqlite'), budgetFile: join(projectRoot, 'artifacts/W0-I/model-evaluation/budget.json'),
     budgetBatchId: 'original-fixture-batch', limitMicros: 20000000, phaseLimitMicros: 20000000, maxCalls: 200,
     operationLimits: { admission: 40, dialogue: 40, memory_turn: 40, summary: 20, perception: smoke ? 0 : 20, tts: 40 },
     memory: { mode: 'strict', scheduling: 'semantic-admission', timeoutMs: 300000 },
@@ -77,7 +114,7 @@ test('smoke unknown costs stop subsequent calls, rejected configuration never ap
 test('only the pinned reviewed unknown reservation survives restart; changed audit or a new unknown still stops before reserve', async t => {
   const f = await fixture(t, true);
   const entry = { operationId: 'W0-I:B-DANIA-MINIMAX-AUDITION-01:clone-demo', model: 'MiniMax/speech-2.8-hd', reservedMicros: 19600, actualMicros: null, status: 'unknown' };
-  const auditFile = join(f.c.projectRoot, '.local/minimax-default-01/budget-bound/audit.json');
+  const auditFile = join(f.c.projectRoot, 'artifacts/W0-I/minimax-default-01/budget-bound/audit.json');
   const audit = JSON.stringify({ kind: 'unknown_reservation_upper_bound_correction', status: 'applied', actualChargeStillUnknown: true, correctedEntry: entry });
   await mkdir(dirname(auditFile), { recursive: true }); await writeFile(auditFile, audit);
   const c = validateTrialConfiguration({ ...f.c, reviewedUnknownCosts: [{ operationId: entry.operationId, model: entry.model,
@@ -112,7 +149,7 @@ test('reported costs reject malformed or overflowing usage and charge TTS per ac
 
 test('launch plan supplies the real native arguments and refuses changed build bytes before a process starts', async t => {
   const f = await fixture(t), paths = trialFiles(f.c.projectRoot);
-  const priorDirectory = join(f.c.projectRoot, '.local/model-evaluation/trial');
+  const priorDirectory = join(f.c.projectRoot, 'artifacts/W0-I/model-evaluation/trial');
   const priorConfig = join(priorDirectory, 'config.json'), priorActivation = join(priorDirectory, 'activation.json');
   await mkdir(priorDirectory, { recursive: true });
   await writeFile(priorConfig, 'frozen-smoke-config'); await writeFile(priorActivation, 'frozen-smoke-activation');
@@ -128,6 +165,66 @@ test('launch plan supplies the real native arguments and refuses changed build b
   assert.equal(await readFile(priorActivation, 'utf8'), 'frozen-smoke-activation');
   await writeFile(join(f.c.projectRoot, 'code/desktop-pet/dist/app/trial-backend.js'), 'changed');
   await assert.rejects(prepareTrialLaunch(f.c.projectRoot, '/controlled/node'), /程序文件/);
+});
+
+test('the pinned local workbench starts only from the matching prepared T3 tree and Node binary', async t => {
+  const f = await fixture(t), root = f.c.projectRoot;
+  const run = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  const scratch = join(root, 'artifacts/runtime/scratch');
+  await mkdir(scratch, { recursive: true }); run(scratch, 'init', '-q');
+  run(scratch, 'config', 'user.name', 'Controlled Test'); run(scratch, 'config', 'user.email', 'controlled@example.invalid');
+  await writeFile(join(scratch, 'LICENSE'), 'controlled MIT license'); run(scratch, 'add', 'LICENSE'); run(scratch, 'commit', '-qm', 'fixed source');
+  const commit = run(scratch, 'rev-parse', 'HEAD'), patchSha256 = hash('');
+  const markerPath = `artifacts/runtime/t3-${commit.slice(0, 8)}-${patchSha256.slice(0, 12)}/.aaaagent-prepared.json`;
+  const nodePath = 'artifacts/runtime/toolchain/node-v24.13.1-darwin-arm64/bin/node';
+  const sourceDir = join(root, dirname(markerPath));
+  await mkdir(join(sourceDir, 'apps/server/dist'), { recursive: true });
+  await writeFile(join(sourceDir, 'LICENSE'), 'controlled MIT license');
+  // Use the scratch repository's .git so the prepared source can prove its exact commit and diff.
+  await rename(join(scratch, '.git'), join(sourceDir, '.git'));
+  await writeFile(join(sourceDir, 'apps/server/dist/bin.mjs'), 'export {};');
+  const marker = { commit, licenseSha256: hash('controlled MIT license'), patchSha256, patches: [], appliedDiffSha256: hash('') };
+  await writeFile(join(sourceDir, '.aaaagent-prepared.json'), JSON.stringify(marker));
+  const workbench = 'code/workbench/integration/';
+  for (const name of ['t3-local-service.mjs', 't3-http-client.mjs', 't3-child-service.mjs', 't3-host.mjs', 't3-browser.mjs']) {
+    await mkdir(join(root, workbench), { recursive: true }); await writeFile(join(root, workbench, name), 'controlled');
+  }
+  await writeFile(join(root, workbench, 't3-source.json'), JSON.stringify({ commit, licenseSha256: marker.licenseSha256 }));
+  await mkdir(dirname(join(root, nodePath)), { recursive: true }); await writeFile(join(root, nodePath), 'controlled Node');
+  const additions = [markerPath, nodePath, ...['t3-source.json', 't3-local-service.mjs', 't3-http-client.mjs', 't3-child-service.mjs', 't3-host.mjs', 't3-browser.mjs'].map(name => workbench + name)];
+  const runtimeFiles = Object.fromEntries(additions.map(path => [path, hash(path === markerPath ? JSON.stringify(marker) :
+    path === nodePath ? 'controlled Node' : path.endsWith('t3-source.json') ? JSON.stringify({ commit, licenseSha256: marker.licenseSha256 }) : 'controlled')]));
+  const configuration = { ...f.c, runtimeFiles };
+  assert.ok(additions.every(isTrialRuntimePath)); await verifyTrialRuntime(configuration);
+  const environment = await preparedWorkbenchEnvironment(configuration);
+  assert.equal(environment.AAAAGENT_T3_PREPARED_DIR, sourceDir);
+  assert.equal(environment.AAAAGENT_T3_NODE_EXECUTABLE, join(root, nodePath));
+  const codexDir = 'artifacts/runtime/codex-0.156.0-aarch64-apple-darwin-6f7bdad25693';
+  const codexSource = { version: '0.156.0', target: 'aarch64-apple-darwin',
+    archiveSha256: '6f7bdad25693f464a146ad6f24d477ad6fbffe07b62556f829ee5d3b04f48f8b', entrypoint: 'bin/codex' };
+  const codexFiles = { 'bin/codex': hash('controlled Codex'), 'bin/codex-code-mode-host': hash('controlled host') };
+  const codexMarker = JSON.stringify({ source: codexSource, files: codexFiles });
+  await mkdir(join(root, codexDir, 'bin'), { recursive: true });
+  await writeFile(join(root, codexDir, 'bin/codex'), 'controlled Codex');
+  await writeFile(join(root, codexDir, 'bin/codex-code-mode-host'), 'controlled host');
+  await writeFile(join(root, codexDir, '.aaaagent-codex.json'), codexMarker);
+  await writeFile(join(root, workbench, 'codex-source.json'), JSON.stringify(codexSource));
+  const pinned = { ...configuration, runtimeFiles: { ...configuration.runtimeFiles,
+    [workbench + 'codex-source.json']: hash(JSON.stringify(codexSource)),
+    [codexDir + '/.aaaagent-codex.json']: hash(codexMarker),
+    ...Object.fromEntries(Object.entries(codexFiles).map(([file, digest]) => [codexDir + '/' + file, digest])) } };
+  assert.ok(Object.keys(pinned.runtimeFiles).every(isTrialRuntimePath));
+  await verifyTrialRuntime(pinned); await preparedWorkbenchEnvironment(pinned);
+  const missing = { ...pinned.runtimeFiles }; delete missing[codexDir + '/bin/codex-code-mode-host'];
+  await assert.rejects(preparedWorkbenchEnvironment({ ...pinned, runtimeFiles: missing }), /工作台本地运行文件/);
+  assert.equal(isTrialRuntimePath(codexDir + '/../auth.json'), false);
+  await assert.rejects(preparedWorkbenchEnvironment({ ...pinned,
+    runtimeFiles: Object.fromEntries(Object.entries(pinned.runtimeFiles).filter(([path]) => path !== markerPath)) }), /登记不完整/);
+  await writeFile(join(sourceDir, 'LICENSE'), 'changed license');
+  await assert.rejects(preparedWorkbenchEnvironment(configuration), /工作台本地运行文件/);
+  await writeFile(join(root, nodePath), 'changed Node');
+  await assert.rejects(verifyTrialRuntime(configuration), /程序文件/);
+  assert.equal(isTrialRuntimePath('artifacts/runtime/../data/credentials.json'), false);
 });
 
 test('request bounds reject oversized TTS instructions before a key or network can be accessed', async t => {
@@ -161,7 +258,7 @@ test('reviewed trial memory unknown costs survive restart beyond three entries w
   for(let i=1;i<=4;i++){
     const id=`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
     const entry={operationId:`W0-I:${f.c.phaseId}:memory_turn:${id}`,model:m.model,reservedMicros:m.reservationMicros,actualMicros:null,status:'unknown' as const};
-    const auditFile=join(f.c.projectRoot,`.local/model-evaluation/unknown-cost-reviews/${id}.json`);
+    const auditFile=join(f.c.projectRoot,`artifacts/W0-I/model-evaluation/unknown-cost-reviews/${id}.json`);
     const audit=JSON.stringify({kind:'unknown_trial_reservation_upper_bound_review',status:'applied',actualChargeStillUnknown:true,phaseId:f.c.phaseId,originalEntry:entry,correctedEntry:entry,bounds,maximumMicros:10911744});
     await mkdir(dirname(auditFile),{recursive:true});await writeFile(auditFile,audit);
     entries.push(entry);reviews.push({operationId:entry.operationId,model:entry.model,reservedMicros:entry.reservedMicros,auditFile,auditSha256:hash(audit)});
@@ -261,4 +358,16 @@ test('MiniMax request guard rejects explicit emotion before authorization, key a
     }
   }
   assert.equal(accesses, 0);
+});
+
+test('explicit DSH Host location survives configuration only with pinned trial support', async t => {
+  const f = await fixture(t), workbenchDshWebLog = '/synthetic-private/DeepSeek Harness/web.log';
+  assert.throws(() => validateTrialConfiguration({ ...f.c, workbenchDshWebLog }), /DSH Host/);
+  const c = { ...f.c, workbenchDshWebLog, runtimeFiles: { ...f.c.runtimeFiles,
+    'code/workbench/integration/dsh-controller-source.json': hash('native pin'),
+    'code/workbench/integration/dsh-trial.mjs': hash('scoped guard') } };
+  assert.equal(validateTrialConfiguration(c).workbenchDshWebLog, workbenchDshWebLog);
+  for (const path of ['relative', '/private/../other', '/private/\0bad']) {
+    assert.throws(() => validateTrialConfiguration({ ...c, workbenchDshWebLog: path }), /DSH Host/);
+  }
 });

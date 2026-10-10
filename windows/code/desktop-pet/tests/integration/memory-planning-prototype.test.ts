@@ -963,7 +963,7 @@ test('current instruction old complete 03 and 06 outputs remain structurally val
     ['03', 'semantic-pro-20260909-03-raw', '50ad452392e912e1618590d3449a0182345d650ff76daa214bf996637201e51b'],
     ['06', 'semantic-binding-pro-high-300s-20260909-06-raw', 'a7361e19f9b9bd2142d198516c9b5abe20fc1f70639a4f8bb60685a2696f7fe4'],
   ]) {
-    const run = join(root, `.local/semantic-batches/memory-semantic-batch-20260909-${batch}/runs/${runId}`);
+    const run = join(root, `artifacts/W0-I/semantic-batches/memory-semantic-batch-20260909-${batch}/runs/${runId}`);
     const original = JSON.parse(await readFile(join(run, 'result.json'), 'utf8'));
     const wire = JSON.parse((await readFile(join(run, 'wire-responses.jsonl'), 'utf8')).trim()), raw = Buffer.from(wire.rawBase64, 'base64');
     assert.equal(createHash('sha256').update(raw).digest('hex'), expectedSha);

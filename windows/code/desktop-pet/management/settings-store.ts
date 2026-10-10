@@ -1,3 +1,4 @@
+import {inputBudgetInfo} from '../providers/input-count.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -20,10 +21,16 @@ export class ManagementSettingsStore {
     let state: SettingsFile;
     try {
       state = JSON.parse(await readFile(file, 'utf8')) as SettingsFile;
+      const beforeMigration=JSON.stringify(state);
       if (state.version !== 1 || !state.current || !Number.isSafeInteger(state.current.revision) || state.current.revision < 1 || !Array.isArray(state.history)) throw new Error('Invalid settings history');
       state.current.settings = validateManagedSettings(state.current.settings, base, voices, false, credentials, draftOnly);
       if (state.history.length > 10 || state.history.some(item => !Number.isSafeInteger(item.revision) || item.revision < 0 || item.revision >= state.current.revision)) throw new Error('Invalid settings revision');
       for (const item of state.history) item.settings = validateManagedSettings(item.settings, base, voices, true, credentials, draftOnly);
+      if(JSON.stringify(state)!==beforeMigration){
+        const temporary=`${file}.${randomUUID()}.next`;
+        try{await writeFile(temporary,JSON.stringify(state)+'\n',{mode:0o600,flag:'wx'});await rename(temporary,file);}
+        finally{await unlink(temporary).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;});}
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       state = { version: 1, current: { revision: 0, savedAt: new Date().toISOString(), settings: defaultManagedSettings(base, credentials) }, history: [] };
@@ -31,11 +38,11 @@ export class ManagementSettingsStore {
     return new ManagementSettingsStore(file, base, state, structuredClone(state.current.settings), state.current.revision, voices, credentials, draftOnly);
   }
   snapshot(): SettingsSnapshot {
-    return { revision: this.state.current.revision, effectiveRevision: this.effectiveRevision, savedAt: this.state.current.revision ? this.state.current.savedAt : null,
+    return { savedBudget:inputBudgetInfo(this.state.current.settings.providers.dialogue,this.state.current.settings.context.targetInputTokens),effectiveBudget:inputBudgetInfo(this.effective.providers.dialogue,this.effective.context.targetInputTokens),revision: this.state.current.revision, effectiveRevision: this.effectiveRevision, savedAt: this.state.current.revision ? this.state.current.savedAt : null,
       pending: JSON.stringify(this.state.current.settings) !== JSON.stringify(this.effective), applyOn: 'restart',
       effective: structuredClone(this.effective), saved: structuredClone(this.state.current.settings), history: this.state.history.map(({ revision, savedAt }) => ({ revision, savedAt })) };
   }
-  save(expectedRevision: number, settings: unknown): Promise<SettingsSnapshot> { return this.commit(expectedRevision, () => validateManagedSettings(settings, this.base, this.registeredVoices, false, this.credentials, this.draftOnly)); }
+  save(expectedRevision: number, settings: unknown): Promise<SettingsSnapshot> { return this.commit(expectedRevision, () => validateManagedSettings(settings, this.base, this.registeredVoices, false, this.credentials, this.draftOnly, this.state.current.settings.providers.dialogue.reservationMicros)); }
   rollback(expectedRevision: number, targetRevision: number): Promise<SettingsSnapshot> {
     return this.commit(expectedRevision, () => { const target = this.state.history.find(item => item.revision === targetRevision); if (!target) throw new ManagementError('not_found', '没有这个可回滚配置版本。'); return validateManagedSettings(target.settings, this.base, this.registeredVoices, false, this.credentials, this.draftOnly); });
   }

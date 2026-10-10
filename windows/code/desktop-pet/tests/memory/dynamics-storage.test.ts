@@ -14,7 +14,7 @@ test('same PET2 store adds component state, preserves rows and resumes after res
   f.setTime('2026-10-06T12:00:00Z');assert.equal(store.dynamics.state(scope(),'job')!.activation,0.5);
   store.close();store=f.open();assert.equal(store.dynamics.state(scope(),'job')!.activation,0.5);
   assert.equal(store.inspect(scope(),'job')!.state,'active');
-  const db=new Database(f.filename,{readonly:true});assert.equal(db.pragma('user_version',{simple:true}),4);assert.equal(db.pragma('application_id',{simple:true}),0x50455432);db.close();
+  const db=f.track(new Database(f.filename,{readonly:true}));assert.equal(db.pragma('user_version',{simple:true}),4);assert.equal(db.pragma('application_id',{simple:true}),0x50455432);db.close();
   assert.equal(raw!.text,'我在海风公司工作');
  }finally{f.cleanup();}
 });

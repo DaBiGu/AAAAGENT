@@ -1,4 +1,3 @@
-import { restrictPrivatePathSync } from '../../core/platform-files.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -47,14 +46,14 @@ test('empty, oversized, embedded whitespace and header-unsafe content fail witho
     assert.equal(normalizeApiKey(key),undefined);
     assert.throws(()=>store.save({provider:'dashscope',key,expectedRevision:0,operationId:'synthetic-invalid'}),{code:'invalid_request'});
     assert.equal(store.entries().length,0);
-    writeFileSync(file,key,{mode:0o600});restrictPrivatePathSync(file);
+    writeFileSync(file,key,{mode:0o600});
     await assert.rejects(readSetupKey(file,f.project),/credential_unavailable/);
     assert.throws(keyReader(file,f.config,f.configFile,f.activationFile));
   }
   assert.equal(normalizeApiKey(null),undefined);assert.equal(normalizeApiKey(42),undefined);
 });
 
-test('new-format keys retain file protection and activation checks',{skip:process.platform==='win32'},async t=>{
+test('new-format keys retain file protection and activation checks',async t=>{
   const f=fixture(t),file=join(f.root,'external.key');writeFileSync(file,'sk-ws-demo.signature',{mode:0o600});
   chmodSync(file,0o644);await assert.rejects(readSetupKey(file,f.project));assert.throws(keyReader(file,f.config,f.configFile,f.activationFile));
   chmodSync(file,0o600);writeFileSync(f.activationFile,'{}');assert.throws(keyReader(file,f.config,f.configFile,f.activationFile),/not active/);

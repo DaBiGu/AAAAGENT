@@ -18,7 +18,7 @@ import { parseWorkAction } from '../../app/backend-session.js';
 const scope: TurnScope = { characterId: 'companion', sessionId: 'session', turnId: 'turn', generation: 1 };
 const tick = () => new Promise<void>(yes => setImmediate(yes));
 async function fixture(t: TestContext, automatic=false, continuation=false) {
-  const parent = resolve('../../.local/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
+  const parent = resolve('../../artifacts/W0-I/direct-forward-20/tmp'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'work-')); const file = join(root, 'harness-relay.sqlite');
   const receipts = new ForwardReceipts(file), projects = new SqliteProjectIndex(join(root, 'project-index.sqlite'));
   const task = randomUUID(), turn = randomUUID(), states: DesktopWorkState[] = [], notices: WorkStatusNotice[] = [];
@@ -61,6 +61,29 @@ test('ordinary input/Space restores companion focus without cancelling work; com
   f.observation.completed = true; await f.work.observe();
   assert.equal(f.receipts.get(row.id).phase, 'completed'); assert.equal(f.states.at(-1)?.focus, 'companion'); assert.equal(f.states.at(-1)?.stage, 'completed');
   assert.equal(f.observation.sends, 1); assert.equal(f.observation.prompts, 0); assert.equal(f.observation.sends, 1);
+});
+test('selected native workbench routes engineering text and ASR before legacy draft creation', async t => {
+  const f = await fixture(t);
+  await f.work.close();
+  const routed: string[] = [];
+  let intent: WorkIntent = { kind: 'work' };
+  const work = new DesktopWork({ receipts: f.receipts, projects: f.projects, forwarding: f.forwarding,
+    classify: async () => intent,
+    workbenchSelection: () => ({ revision: 1, projectId: 'native-project', taskId: 'native-task' }),
+    workbenchRoute: async (owned, text, _signal, assertCurrent, selected) => {
+      assertCurrent(); assert.equal(owned.sessionId, scope.sessionId);
+      assert.equal(selected.taskId, 'native-task'); routed.push(text); return true;
+    }, emit: state => f.states.push(state) });
+  t.after(async () => work.close());
+  await work.start(60000);
+  assert.equal(await work.route(scope, '继续准确的原生任务', new AbortController().signal), 'handled');
+  assert.equal(await work.route({ ...scope, turnId: 'asr-turn' }, '语音补充这项任务', new AbortController().signal), 'handled');
+  assert.deepEqual(routed, ['继续准确的原生任务', '语音补充这项任务']);
+  assert.equal(f.receipts.drafts().length, 0);
+  assert.equal(f.observation.sends + f.observation.prompts + f.observation.nativePrompts, 0);
+  intent = { kind: 'companion' };
+  assert.equal(await work.route({ ...scope, turnId: 'chat-turn' }, '聊聊今天', new AbortController().signal), 'companion');
+  assert.equal(routed.length, 2);
 });
 test('dismissed or stale draft cannot be confirmed; missing owner stays before model prompt', async t => {
   const f = await fixture(t); await f.work.route(scope, 'Do work', new AbortController().signal); const row = await f.choose();
@@ -305,16 +328,8 @@ for(const change of ['cancel','revise'] as const)test('late continuation after '
 test('owner lookup cancellation is checked before durable confirmation',async t=>{
  const f=await fixture(t,true,true);await f.work.route(scope,'Synthetic task',signal());const b=binding(f);let release!:()=>void;
  f.observation.ownerWait=()=>new Promise<void>(r=>release=r);const stop=new AbortController();const run=f.work.route(begin(f,2),'确认',stop.signal);
- try {
-  // Disk-backed validation can outlast many event-loop ticks on Windows.
-  const deadline=Date.now()+5000;
-  while(!release&&Date.now()<deadline)await new Promise<void>(done=>setTimeout(done,5));
-  assert.ok(release,'owner lookup must reach its controlled wait');stop.abort();f.work.onInput();release();await run.catch(()=>{});
-  assert.equal(f.receipts.get(b.requestId!).confirmedAt,undefined);assert.equal(f.observation.prompts,0);assert.equal(f.receipts.draft(b.draftId).status,'prepared');
- } finally {
-  // A failed assertion must not strand fixture teardown behind this mock gate.
-  stop.abort();f.observation.ownerWait=undefined;release?.();await run.catch(()=>{});
- }
+ for(let n=0;n<20&&!release;n++)await tick();assert.ok(release);stop.abort();f.work.onInput();release();await run.catch(()=>{});
+ assert.equal(f.receipts.get(b.requestId!).confirmedAt,undefined);assert.equal(f.observation.prompts,0);assert.equal(f.receipts.draft(b.draftId).status,'prepared');
 });
 test('failed interpretation saves raw answer; empty input is not reported as storage corruption',async t=>{
  const f=await fixture(t,true,true);f.observation.intent={kind:'clarify',question:'Which scope?'};await f.work.route(scope,'Original',signal());const b=binding(f);

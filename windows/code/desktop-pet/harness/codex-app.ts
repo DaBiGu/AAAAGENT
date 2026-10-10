@@ -1,4 +1,3 @@
-import {openLocalUrl} from '../core/open-url.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -87,7 +86,7 @@ export interface CodexAppTarget { threadId: string; hostId: 'local'; title: stri
 export interface CodexAppReceipt { threadId: string; turnId: string; status: 'completed' | 'unknown'; reason?: 'interrupted' | 'continued_elsewhere'; reply?: string; durationMs?: number }
 export class CodexAppConnection {
   constructor(private readonly codexHome: string, private readonly compatibility = verifyCodexAppBuild, private readonly timeoutMs = 5000,
-    private readonly openTask: (id: string) => Promise<void> = async id => { await openLocalUrl('codex://threads/' + id); }) {}
+    private readonly openTask: (id: string) => Promise<void> = async id => { await promisify(execFile)('/usr/bin/open', ['codex://threads/' + id]); }) {}
   private database() { return new Database(join(this.codexHome, 'state_5.sqlite'), { readonly: true, fileMustExist: true }); }
   list(query = '', limit = 200): CodexAppTarget[] {
     if (query.length > 200 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new CodexAppError('invalid_target');

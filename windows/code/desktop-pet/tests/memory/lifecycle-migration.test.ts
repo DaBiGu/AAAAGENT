@@ -13,7 +13,7 @@ function diskSnapshot(directory:string) {
 }
 for (const version of [1,2,3]) test(`A10: old PET1 schema ${version} is rejected before modifying database or creating WAL/SHM`,t=>{
   const f=fixture();t.after(f.cleanup);
-  const old=new Database(f.filename);
+  const old=f.track(new Database(f.filename));
   old.exec(`PRAGMA application_id=1346720817; PRAGMA user_version=${version};
     CREATE TABLE characters(character_id TEXT PRIMARY KEY,prompt TEXT); INSERT INTO characters VALUES('friend','old friend'),('sweetheart','old relationship');
     CREATE TABLE memory_records(character_id TEXT,id TEXT,text TEXT); INSERT INTO memory_records VALUES('friend','old','synthetic-old-private-memory');`);
@@ -25,7 +25,7 @@ for (const version of [1,2,3]) test(`A10: old PET1 schema ${version} is rejected
 });
 
 test('A10: rejection also leaves an open old WAL database and its sidecar bytes untouched',t=>{
-  const f=fixture();t.after(f.cleanup);const old=new Database(f.filename);f.track(old);
+  const f=fixture();t.after(f.cleanup);const old=f.track(new Database(f.filename));t.after(()=>old.close());
   old.exec('PRAGMA application_id=1346720817; PRAGMA user_version=3; CREATE TABLE characters(character_id TEXT)');
   old.pragma('journal_mode=WAL');old.exec("INSERT INTO characters VALUES('friend')");
   const before=diskSnapshot(f.directory);assert.ok(before.some(file=>file.name.endsWith('-wal')));
@@ -39,14 +39,14 @@ test('A10: same-product schema reopening preserves records, edited prompt, and t
     store=f.open();assert.deepEqual(store.inspect(scope(),'job'),record);assert.equal(store.prompt(scope()),'用户定制的性格');
     assert.equal(store.revision(scope()),revision);assert.equal(store.introduction(),null);store.close();
   }
-  const db=new Database(f.filename,{readonly:true});f.track(db);
+  const db=f.track(new Database(f.filename,{readonly:true}));t.after(()=>db.close());
   assert.equal(db.pragma('application_id',{simple:true}),COMPANION_DATABASE_ID);assert.equal(db.pragma('user_version',{simple:true}),COMPANION_SCHEMA_VERSION);
   assert.deepEqual(db.prepare('SELECT character_id FROM characters').all(),[{character_id:'companion'}]);
 });
 
 test('future unsupported product schema and false companion registry reject before schema setup',t=>{
-  const f=fixture();t.after(f.cleanup);f.open().close();let db=new Database(f.filename);db.pragma('user_version=999');db.close();
+  const f=fixture();t.after(f.cleanup);f.open().close();let db=f.track(new Database(f.filename));db.pragma('user_version=999');db.close();
   let before=diskSnapshot(f.directory);assert.throws(()=>f.open(),/unsupported_database_schema/);assert.deepEqual(diskSnapshot(f.directory),before);
-  db=new Database(f.filename);db.pragma(`user_version=${COMPANION_SCHEMA_VERSION}`);db.pragma('ignore_check_constraints=ON');db.prepare("UPDATE characters SET character_id='friend'").run();db.close();
+  db=f.track(new Database(f.filename));db.pragma(`user_version=${COMPANION_SCHEMA_VERSION}`);db.pragma('ignore_check_constraints=ON');db.prepare("UPDATE characters SET character_id='friend'").run();db.close();
   before=diskSnapshot(f.directory);assert.throws(()=>new SqliteMemoryStore(f.options),/invalid_product_registry/);assert.deepEqual(diskSnapshot(f.directory),before);
 });

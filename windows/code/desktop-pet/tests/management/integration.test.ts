@@ -79,7 +79,7 @@ test('actual trial backend process publishes its local page, applies saved confi
   await mkdir(project, { recursive: true });
   await cp(join(source, 'dist'), join(project, 'dist'), { recursive: true });
   await cp(join(source, 'management/ui'), join(project, 'management/ui'), { recursive: true });
-  await cp(join(source, 'desktop/assets/local-model'), join(project, 'desktop/assets/local-model'), { recursive: true });
+  await cp(join(source, 'desktop/assets/jellyfish'), join(project, 'desktop/assets/jellyfish'), { recursive: true });
   await cp(join(source, 'desktop/vendor/cubism'), join(project, 'desktop/vendor/cubism'), { recursive: true });
   // Isolated runtime fixture reuses installed dependencies; no native process/device is launched.
   await symlink(join(source, 'node_modules'), join(project, 'node_modules'));

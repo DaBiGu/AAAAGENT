@@ -1,4 +1,4 @@
-import { isPrivateFileSync, restrictPrivatePathSync } from '../core/platform-files.js';
+import { isPrivateDirectorySync, isPrivateFileSync, restrictPrivatePathSync } from '../core/platform-files.js';
 import { constants, type Stats } from 'node:fs';
 import { mkdir, lstat, open, readdir, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve, parse, join, extname, sep } from 'node:path';
@@ -34,7 +34,10 @@ export async function privateDirectory(path: string): Promise<string> {
     try { await mkdir(current, { mode: 0o700 }); restrictPrivatePathSync(current); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
     const stat = await lstat(current);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new VoiceReferenceError('unsafe_storage');
-    if (current === absolute) privateMode(stat,0o700);
+    if (current === absolute) {
+      privateMode(stat,0o700);
+      if (!isPrivateDirectorySync(current)) throw new VoiceReferenceError('unsafe_storage');
+    }
   }
   return absolute;
 }

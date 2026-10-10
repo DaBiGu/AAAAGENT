@@ -1,5 +1,5 @@
-import { isPrivateFileSync } from '../../core/platform-files.js';
 import test from 'node:test';
+import { isPrivateFileSync } from '../../core/platform-files.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, readFile, writeFile, stat, symlink, readdir, realpath, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -2,7 +2,7 @@ import type { CompanionIntroduction } from './character.js';
 import type { CharacterId, DesktopCommand, DesktopEvent, PlaybackEvent, TtsResult, TurnScope } from './index.js';
 
 /** NDJSON over local child-process stdio, forwarded by the native shell. Never contains credentials. */
-export const DESKTOP_BRIDGE_VERSION = '0.7.0' as const;
+export const DESKTOP_BRIDGE_VERSION = '0.8.0' as const;
 /** Additive safe diagnostics; arbitrary device/provider messages are never user-facing protocol data. */
 export const DEVICE_FAILURE_CODES = ['permission_denied', 'device_unavailable', 'capture_module_failed',
   'capture_start_failed', 'capture_finish_failed', 'device_operation_failed'] as const;
@@ -20,8 +20,9 @@ export type BackendToDesktop =
   | { readonly channel: 'work_speech'; readonly event: import('./desktop-work.js').WorkSpeechEvent }
   | { readonly channel: 'input_route'; readonly scope: TurnScope; readonly route: 'companion' | 'work' }
   | { readonly channel: 'work_state'; readonly state: import('./desktop-work.js').DesktopWorkState }
+  | { readonly channel: 'workbench_state'; readonly state: import('./workbench.js').WorkbenchDesktopState }
   | { readonly channel: 'presentation_policy'; readonly policy: import('./presentation-presets.js').PresentationPolicy }
-  | { readonly channel: 'backend_ready'; readonly bridgeVersion: typeof DESKTOP_BRIDGE_VERSION; readonly characterId: CharacterId; readonly sessionId: string; readonly introduction?: CompanionIntroduction }
+  | { readonly channel: 'backend_ready'; readonly bridgeVersion: typeof DESKTOP_BRIDGE_VERSION; readonly characterId: CharacterId; readonly sessionId: string; readonly introduction?: CompanionIntroduction; readonly history?: import('./companion-chat-history.js').CompanionChatHistory }
   | { readonly channel: 'event'; readonly event: DesktopEvent }
   | { readonly channel: 'capture_start' | 'capture_finish' | 'capture_stop'; readonly requestId: string; readonly scope: TurnScope }
   | { readonly channel: 'play'; readonly requestId: string; readonly tts: TtsResult; readonly audioBase64: string }
@@ -29,6 +30,7 @@ export type BackendToDesktop =
 export type DesktopToBackend =
   | import('./wake.js').WakeFromDesktop
   | { readonly channel: 'work_action'; readonly action: import('./desktop-work.js').DesktopWorkAction }
+  | { readonly channel: 'workbench_action'; readonly action: import('./workbench.js').WorkbenchDesktopAction }
   | { readonly channel: 'command'; readonly command: DesktopCommand }
   | { readonly channel: 'ack'; readonly requestId: string }
   | { readonly channel: 'capture'; readonly requestId: string; readonly result: {

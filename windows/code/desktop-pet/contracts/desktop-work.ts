@@ -1,9 +1,10 @@
 import type { TurnScope } from './index.js';
 import type { ForwardRequest, ForwardTargets, WorkExecutor } from './harness.js';
 import type { ProjectEntry, CodexTaskTarget } from './projects.js';
+import type { WorkbenchVoiceBinding } from './workbench.js';
 
-/** Work v0.5.0: independent input display and brief verified-state speech; no engineering bodies/logs in companion memory or dialogue TTS. */
-export const DESKTOP_WORK_VERSION = '0.5.0' as const;
+/** Work v0.6.0: independent input display and brief verified-state speech; no engineering bodies/logs in companion memory or dialogue TTS. */
+export const DESKTOP_WORK_VERSION = '0.6.0' as const;
 export type WorkStage = 'idle' | 'classifying' | 'clarifying' | 'selecting' | 'confirming' | 'sending' | 'working' | 'completed' | 'failed' | 'unknown';
 export interface WorkDraft {
   id: string; version: number; text: string; question?: string;
@@ -21,15 +22,21 @@ export interface WorkConversationMessage {
   role: 'user' | 'assistant'; text: string; scope: TurnScope;
 }
 /** Minimal task-space context only. Model output never owns IDs or an executable action. */
-export interface PendingWorkContext {
-  stage: 'clarifying' | 'confirming';
-  originalRequest: string; currentRequest: string; question?: string;
-  conversation: readonly Pick<WorkConversationMessage, 'role' | 'text'>[];
+export interface WorkTaskReference {
+  originalRequest: string; currentRequest: string;
   arrangement?: { executor: WorkExecutor; title: string; projectName?: string; targetName?: string };
+}
+/** Quoted task-space evidence only, never results or inherited execution consent. */
+export interface WorkPlanContinuity extends WorkTaskReference {
+  conversation: readonly Pick<WorkConversationMessage, 'role' | 'text'>[];
+  previousTask?: WorkTaskReference;
+}
+export interface PendingWorkContext extends WorkPlanContinuity {
+  stage: 'clarifying' | 'confirming'; question?: string;
 }
 export type WorkContinuationIntent =
   | { kind: 'confirm' | 'cancel' | 'companion' | 'new_work' }
-  | { kind: 'supplement'; text: string; executionAuthorized: boolean }
+  | { kind: 'supplement'; text: string; executionAuthorized: boolean; routing?: 'unchanged' | 'changed' }
   | { kind: 'clarify'; question: string };
 export interface WorkSourceInput {
   /** Exact originating draft and scope, never inferred from the latest unrelated draft. */
@@ -82,10 +89,10 @@ export interface DesktopWorkPort {
   action(action: DesktopWorkAction): Promise<void>;
   onInput(): void;
   /** Called after creating a user turn, before capture/model work; absent binding never authorizes pending confirmation. */
-  beginInput?(scope: TurnScope, binding?: WorkInputBinding): void;
+  beginInput?(scope: TurnScope, binding?: WorkInputBinding, workbenchBinding?: WorkbenchVoiceBinding): void;
   close(): Promise<void>;
 }
 
-/** Metadata only for planning; no project documents, chat history or prior outputs. */
-export interface WorkPlanCatalog { projects: WorkDraft['projects']; targets: WorkDraft['targets'] }
+/** Candidate metadata and bounded same-session task evidence; no project documents, companion chat or task results. */
+export interface WorkPlanCatalog { projects: WorkDraft['projects']; targets: WorkDraft['targets']; continuity?: WorkPlanContinuity }
 export type WorkPlan = { kind: 'clarify'; question: string } | { kind: 'ready'; executor: WorkExecutor; title: string; text: string; reason: string; spokenSummary?: string; targetId?: string; projectId?: string; projectVersion?: number };

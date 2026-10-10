@@ -1,5 +1,6 @@
 import { WorkSpeech, type WorkStatusNotice } from '../core/work-speech.js';
 import type { DesktopWorkAction, DesktopWorkPort, WorkInputBinding } from '../contracts/desktop-work.js';
+import type { WorkbenchVoiceBinding } from '../contracts/workbench.js';
 import { PRODUCT_CHARACTERS, type CompanionProfilePort } from '../contracts/character.js';
 import { DESKTOP_BRIDGE_VERSION, type BackendToDesktop } from '../contracts/desktop-bridge.js';
 import type { DesktopCommand, MemoryMaintenanceInput, MemoryPort, TurnScope } from '../contracts/index.js';
@@ -9,12 +10,15 @@ import { RoleMaintenanceQueue } from '../core/maintenance-queue.js';
 import { RoleMemoryLifecycleQueue } from '../core/memory-lifecycle-queue.js';
 import type { BackgroundMemoryPort, MemoryPendingObservation, MemoryTurnPort, SummaryPort, ForegroundMemoryRequest } from '../contracts/memory-lifecycle.js';
 import { DesktopDeviceBridge } from './desktop-device-bridge.js';
+import type { CompanionChatHistory } from '../contracts/companion-chat-history.js';
+import { unavailableCompanionChatHistory } from '../contracts/companion-chat-history.js';
 
 export interface PersistentMemoryPort extends MemoryPort { maintenanceInput(scope: TurnScope, text: string): MemoryMaintenanceInput }
 export interface BackendPorts extends Omit<DialoguePorts, 'playback' | 'memory' | 'memoryLifecycle' | 'backgroundMemory'> {
   memory: PersistentMemoryPort;
   createEmotion?: () => import('../contracts/emotion-state.js').EmotionTurnPort;
   companionProfile?: CompanionProfilePort;
+  readCompanionHistory?: (characterId: TurnScope['characterId']) => CompanionChatHistory;
   consumeWakeHit?: (hit: unknown) => string | undefined;
   lifecycleMemory?: PersistentMemoryPort & MemoryTurnPort & SummaryPort;
   backgroundMemory?: PersistentMemoryPort & BackgroundMemoryPort & SummaryPort;
@@ -68,18 +72,33 @@ function parseWorkBinding(value: unknown): WorkInputBinding | undefined {
     || b.requestId !== undefined && (!id(b.requestId) || !version(b.requestVersion))) throw Error('Invalid work binding');
   return {draftId:b.draftId,draftVersion:b.draftVersion,...(b.requestId===undefined?{}:{requestId:b.requestId as string,requestVersion:b.requestVersion as number})};
 }
+export function parseWorkbenchVoiceBinding(value: unknown): WorkbenchVoiceBinding | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid native work binding');
+  const b = value as Record<string, unknown>;
+  const keys = ['version', 'projectId', 'taskId', 'focusRevision', 'draftId', 'draftVersion', 'commandId'];
+  const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
+  if (Object.keys(b).some(k => !keys.includes(k)) || b.version !== '0.1.0' ||
+      !id(b.projectId) || !id(b.taskId) || !id(b.draftId) || !id(b.commandId) ||
+      !Number.isSafeInteger(b.focusRevision) || Number(b.focusRevision) < 1 ||
+      !Number.isSafeInteger(b.draftVersion) || Number(b.draftVersion) < 1) throw Error('Invalid native work binding');
+  return { version: '0.1.0', projectId: b.projectId, taskId: b.taskId, focusRevision: Number(b.focusRevision),
+    draftId: b.draftId, draftVersion: Number(b.draftVersion), commandId: b.commandId };
+}
 export function parseDesktopCommand(value: unknown): DesktopCommand {
   if (!value || typeof value !== 'object') throw new Error('Invalid desktop command');
   const command = value as Record<string, unknown>;
   const binding = command.type === 'submit_text' || command.type === 'start_voice' ? parseWorkBinding(command.workBinding) : undefined;
+  const nativeBinding = command.type === 'submit_text' || command.type === 'start_voice' ? parseWorkbenchVoiceBinding(command.workbenchBinding) : undefined;
+  if (binding && nativeBinding) throw Error('Ambiguous work input binding');
   switch (command.type) {
-    case 'submit_text': if (typeof command.text !== 'string' || !command.text.trim()) throw new Error('Text must not be empty'); if (command.clientRequestId !== undefined && (typeof command.clientRequestId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(command.clientRequestId))) throw new Error('Invalid text request ID'); return { type: 'submit_text', text: command.text, ...(binding ? {workBinding:binding}:{}), ...(command.clientRequestId === undefined ? {} : { clientRequestId: command.clientRequestId as string }) };
+    case 'submit_text': if (typeof command.text !== 'string' || !command.text.trim()) throw new Error('Text must not be empty'); if (command.clientRequestId !== undefined && (typeof command.clientRequestId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(command.clientRequestId))) throw new Error('Invalid text request ID'); return { type: 'submit_text', text: command.text, ...(binding ? {workBinding:binding}:{}), ...(nativeBinding ? {workbenchBinding:nativeBinding}:{}), ...(command.clientRequestId === undefined ? {} : { clientRequestId: command.clientRequestId as string }) };
     case 'acknowledge_introduction':
       if (typeof command.introductionId !== 'string' || !/^[a-zA-Z0-9._:-]{1,128}$/.test(command.introductionId)) throw new Error('Invalid introduction ID');
       return { type: 'acknowledge_introduction', introductionId: command.introductionId };
     case 'start_voice': {
       if (command.clientRequestId !== undefined && (typeof command.clientRequestId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(command.clientRequestId))) throw new Error('Invalid voice request ID');
-      return { type: 'start_voice', ...(binding ? {workBinding:binding}:{}), ...(command.clientRequestId === undefined ? {} : { clientRequestId: command.clientRequestId as string }) };
+      return { type: 'start_voice', ...(binding ? {workBinding:binding}:{}), ...(nativeBinding ? {workbenchBinding:nativeBinding}:{}), ...(command.clientRequestId === undefined ? {} : { clientRequestId: command.clientRequestId as string }) };
     }
     case 'finish_voice': case 'cancel': return { type: command.type };
     case 'click_invitation': if (typeof command.invitationId !== 'string' || !command.invitationId) throw new Error('Missing invitation ID'); return { type: command.type, invitationId: command.invitationId };
@@ -92,9 +111,11 @@ export class BackendSession {
   private readonly maintenance: RoleMaintenanceQueue | RoleMemoryLifecycleQueue;
   private readonly runtime: DesktopRuntime;
   private work?: DesktopWorkPort;
+  private workbench?: { action(value: unknown): Promise<void> };
   private readonly workSpeech: WorkSpeech;
   notifyWork(notice: WorkStatusNotice) { this.workSpeech.notify(notice); }
   attachWork(work: DesktopWorkPort) { this.work = work; this.runtime.attachWork(work); }
+  attachWorkbench(workbench: { action(value: unknown): Promise<void> }) { this.workbench = workbench; }
   private readonly profile: CompanionProfilePort | undefined;
   private readonly consumeWakeHit: BackendPorts['consumeWakeHit'];
   constructor(ports: BackendPorts, private readonly send: (message: BackendToDesktop) => void, private readonly closeStore: () => void, reportBackgroundFailure: (scope: TurnScope, kind: 'memory' | 'summary') => void = () => {}) {
@@ -107,7 +128,7 @@ export class BackendSession {
     const lifecyclePort = ports.backgroundMemory ?? ports.lifecycleMemory;
     const lifecycle = lifecyclePort ? new RoleMemoryLifecycleQueue(lifecyclePort, (scope, _error, kind) => reportBackgroundFailure(scope, kind ?? 'summary')) : undefined;
     this.maintenance = lifecycle ?? new RoleMaintenanceQueue(ports.memory, (scope, text) => ports.memory.maintenanceInput(scope, text), scope => reportBackgroundFailure(scope, 'memory'));
-    const { backgroundMemory: _background, isMemoryIndependent, classifyMemoryRequest, createEmotion, ...runtimePorts } = ports;
+    const { backgroundMemory: _background, isMemoryIndependent, classifyMemoryRequest, createEmotion, readCompanionHistory, ...runtimePorts } = ports;
     const emotion=createEmotion?.()??ports.emotion;
     this.runtime = new DesktopRuntime({ ...runtimePorts, ...(emotion?{emotion}:{}), ...(lifecycle ? { memoryLifecycle: lifecycle } : {}),
       ...(ports.backgroundMemory && lifecycle ? { backgroundMemory: {
@@ -128,7 +149,16 @@ export class BackendSession {
     });
     this.workSpeech = new WorkSpeech({ identity: () => this.runtime.identity(), busy: () => this.runtime.isBusy(), tts: ports.tts, playback: this.devices.playback, media: ports.mediaStore, emit: event => send({channel:'work_speech',event}) });
     const introduction = this.profile?.introduction();
-    send({ channel: 'backend_ready', bridgeVersion: DESKTOP_BRIDGE_VERSION, ...this.runtime.identity(), ...(introduction ? { introduction } : {}) });
+    const identity = this.runtime.identity();
+    let history: CompanionChatHistory | undefined;
+    if (readCompanionHistory && ports.outputMode !== 'text') {
+      try {
+        history = readCompanionHistory(identity.characterId);
+        if (history.characterId !== identity.characterId) throw Error('Foreign history');
+      } catch { history = unavailableCompanionChatHistory(identity.characterId); }
+    }
+    send({ channel: 'backend_ready', bridgeVersion: DESKTOP_BRIDGE_VERSION, ...identity,
+      ...(introduction ? { introduction } : {}), ...(history ? { history } : {}) });
   }
   async receiveLine(line: string): Promise<void> {
     try {
@@ -152,6 +182,10 @@ export class BackendSession {
         } else await this.runtime.dispatch(command);
       }
       else if (message.channel === 'work_action') { if (!this.work) throw Error('Work routing unavailable'); await this.work.action(parseWorkAction(message.action)); }
+      else if (message.channel === 'workbench_action') {
+        if (!this.workbench) throw Error('Workbench routing unavailable');
+        await this.workbench.action(message.action);
+      }
       else this.devices.receive(raw);
     } catch {
       // Never echo untrusted command bodies, transient media or provider errors to logs/UI.

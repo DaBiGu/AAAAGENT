@@ -33,6 +33,20 @@ test('desktop text command automatically speaks without acquiring either capture
   assert.equal(h.mediaStore.count, 0); assert.equal(h.saved[0]?.characterId, 'companion');
 });
 
+test('native presented binding is captured before ASR starts and before companion dialogue', async () => {
+  const h = harness();
+  const binding = { version: '0.1.0' as const, projectId: 'p', taskId: 't', focusRevision: 1,
+    draftId: 'd', draftVersion: 1, commandId: 'c' };
+  let captured: unknown;
+  h.ports.work = { beginInput(_scope, generic, native) { assert.equal(generic, undefined); captured = native; },
+    onInput() {}, async route() { return 'handled'; }, async action() {}, async close() {} };
+  h.ports.capture.start = async () => { assert.deepEqual(captured, binding); };
+  await h.runtime.dispatch({ type: 'start_voice', workbenchBinding: binding });
+  await h.runtime.dispatch({ type: 'finish_voice' }); await h.runtime.drain();
+  assert.deepEqual(captured, binding); assert.deepEqual(h.scopes, []); assert.deepEqual(h.played, []);
+  await h.runtime.close();
+});
+
 test('permission wait never blocks cancel and late permission cannot start the cancelled turn', async () => {
   const h = harness(), ready = deferred<void>(); let stopped = false;
   h.ports.capture.start = async () => ready.promise;

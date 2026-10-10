@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,rm,stat,readFile,symlink,writeFile} from 'node:fs/promises';
-import {resolve,join} from 'node:path';
+import {resolve,join,dirname} from 'node:path';
+import {isPrivateFileSync} from '../../core/platform-files.js';
 import {FinanceCredentials} from '../../management/balance-credentials.js';
 import {ProviderBalances,balanceRows,rpcSignature} from '../../management/balances.js';
 async function fixture(t:{after(fn:()=>Promise<void>):void}){const parent=resolve('../../.local/balances-32/tmp');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'balance-'));t.after(()=>rm(root,{recursive:true,force:true}));return {root,credentials:new FinanceCredentials(root)};}
@@ -34,9 +35,9 @@ test('failure retains timestamped stale balance without provider error or key; t
 });
 test('credentials are private atomic configuration, no file before configure, revision conflict and symlink rejected',async t=>{
  const f=await fixture(t);assert.equal(await f.credentials.read(),null);await assert.rejects(stat(f.credentials.filename));
- await f.credentials.save(0,'synthetic-key-id','synthetic-key-secret');assert.equal((await stat(f.credentials.filename)).mode&0o777,0o600);const bytes=await readFile(f.credentials.filename);
+ await f.credentials.save(0,'synthetic-key-id','synthetic-key-secret');assert.equal(isPrivateFileSync(f.credentials.filename),true);const bytes=await readFile(f.credentials.filename);
  await assert.rejects(f.credentials.save(0,'synthetic-other-id','synthetic-other-secret'),{code:'version_conflict'});assert.deepEqual(await readFile(f.credentials.filename),bytes);
- const g=await fixture(t),target=join(g.root,'protected');await writeFile(target,'protected');await mkdir(join(g.root,'data/desktop-pet'),{recursive:true});await symlink(target,g.credentials.filename);await assert.rejects(g.credentials.save(0,'synthetic-key-id','synthetic-key-secret'));assert.equal(await readFile(target,'utf8'),'protected');
+ const g=await fixture(t),target=join(g.root,'protected');await writeFile(target,'protected');await mkdir(dirname(g.credentials.filename),{recursive:true});await symlink(process.platform==='win32'?g.root:target,g.credentials.filename,process.platform==='win32'?'junction':'file');await assert.rejects(g.credentials.save(0,'synthetic-key-id','synthetic-key-secret'));assert.equal(await readFile(target,'utf8'),'protected');
 });
 test('credential replacement clears prior account value and discards late response; fixed Aliyun signed host',async t=>{
  const f=await fixture(t);await f.credentials.save(0,'synthetic-old-id','synthetic-old-secret');let release!:(r:Response)=>void;

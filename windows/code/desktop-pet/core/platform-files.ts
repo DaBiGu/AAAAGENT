@@ -45,7 +45,7 @@ function windowsAcl(filename: string, action: 'check' | 'restrict'): void {
   const systemRoot = process.env.SystemRoot || 'C:\\Windows';
   try { execFileSync(win32.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(aclScript, 'utf16le').toString('base64')],
-    { windowsHide: true, timeout: 10000, stdio: 'pipe', env: { ...process.env, AAAAGENT_ACL_PATH: resolve(filename), AAAAGENT_ACL_ACTION: action } }); }
+    { windowsHide: true, timeout: 10000, stdio: 'pipe', env: { ...process.env, AAAAGENT_ACL_PATH: win32.toNamespacedPath(resolve(filename)), AAAAGENT_ACL_ACTION: action } }); }
   catch (error) {
     // Expose only fixed failure categories, never subprocess output, paths or file contents.
     const failure = error as { status?: number; code?: string };
@@ -71,6 +71,16 @@ export function isPrivateFileSync(filename: string, opened?: Stats): boolean {
       }
       if (identity.dev !== opened.dev || identity.ino !== opened.ino) return false;
     }
+    if (process.platform === 'win32') windowsAcl(filename, 'check');
+    else if ((info.mode & 0o077) !== 0 || process.getuid && info.uid !== process.getuid()) return false;
+    return true;
+  } catch { return false; }
+}
+/** Existing private storage directories must also retain their owner-only DACL. */
+export function isPrivateDirectorySync(filename: string): boolean {
+  try {
+    const info = lstatSync(filename);
+    if (!info.isDirectory() || info.isSymbolicLink()) return false;
     if (process.platform === 'win32') windowsAcl(filename, 'check');
     else if ((info.mode & 0o077) !== 0 || process.getuid && info.uid !== process.getuid()) return false;
     return true;

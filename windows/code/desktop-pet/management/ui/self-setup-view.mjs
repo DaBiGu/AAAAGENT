@@ -33,20 +33,45 @@ export async function encodeSetupReference(file){
 export function createSelfSetupView(client,render,host){
  let data=null,auth=null,epoch=0,active=false,reading=null,writing=null,timer=null,stale=true,error='',readError='',message='',composing=false,unavailable=false;
  let secret='',credentialProvider='deepseek',file=null,uploadId=null,form={referenceId:'',label:'',targetModel:voiceModels[0].value,credentialRef:'',text:''};
+ let fileInput=null,chooser=null;
  let settingsDraft=null,settingsBase=null,settingsRevision=null,settingsConflict=false,sample=null,activationReady=false;
  const keyTests=new Map(),keyJobs=new Map();
  function clearKeyTests(){for(const job of keyJobs.values())job.controller.abort();keyJobs.clear();keyTests.clear();}
  const consent=new Set(),uncertain=new Set();
  const visible=()=>!!client.token&&host().connection!=='locked'&&data&&(data.mode==='first-run'||host().page==='models')&&!document.hidden;
  const redraw=()=>{if(!composing)render();};
+ function clearFileSelection(){
+  chooser=null;file=null;uploadId=null;
+  if(fileInput){fileInput.value='';fileInput.disabled=true;fileInput=null;}
+ }
+ function isSelectingFile(){return !!chooser&&active&&visible()&&chooser.input===fileInput&&chooser.epoch===epoch&&chooser.auth===host().authEpoch&&chooser.instance===data?.instanceId;}
+ function fileControl(){
+  if(!fileInput){
+   const scope={epoch,auth:host().authEpoch,instance:data?.instanceId};
+   const current=()=>active&&visible()&&input===fileInput&&scope.epoch===epoch&&scope.auth===host().authEpoch&&scope.instance===data?.instanceId;
+   const input=el('input',{type:'file',id:'setup-audio',accept:'.wav,.mp3,.m4a',
+    onClick:()=>{if(current()&&!input.disabled)chooser={...scope,input};},
+    onChange:()=>{if(!current()){input.value='';return;}chooser=null;file=input.files?.[0]||null;uploadId=null;error='';render();},
+    onCancel:()=>{if(!current())return;chooser=null;redraw();}});
+   fileInput=input;
+  }
+  fileInput.disabled=!!writing;return fileInput;
+ }
+ function resumeFromDocument(event){
+  if(!chooser||event.type==='click'&&event.target===chooser.input)return;
+  // Some native pickers close without a cancel event. Resume on the next explicit page interaction.
+  chooser=null;
+  // Wait until click handlers have run; a pointerdown redraw would remove their target.
+  if(event.type==='click')queueMicrotask(redraw);
+ }
  function clearSample(){if(sample){sample.node.pause();sample.node.removeAttribute('src');sample.node.load();URL.revokeObjectURL(sample.url);sample=null;}}
- function stop(){clearKeyTests();active=false;epoch++;clearTimeout(timer);reading?.controller.abort();reading=null;stale=true;secret='';file=null;uploadId=null;activationReady=false;consent.clear();composing=false;clearSample();}
+ function stop(){clearKeyTests();active=false;epoch++;clearTimeout(timer);reading?.controller.abort();reading=null;stale=true;secret='';clearFileSelection();activationReady=false;consent.clear();composing=false;clearSample();}
  function sync(){const next=host().authEpoch;if(auth!==next){stop();auth=next;data=null;unavailable=false;settingsDraft=settingsBase=null;settingsConflict=false;uncertain.clear();error='';message='';}if(!visible()){if(active)stop();return;}if(!active){active=true;queueMicrotask(()=>active&&refresh());}}
  function accept(value){
   if(value?.apiVersion!==1||!text(value.instanceId)||!['first-run','runtime'].includes(value.mode)||!whole(value.credentialRevision)||!Array.isArray(value.credentials)||!value.credentials.every(c=>text(c.id)&&providers.some(p=>p.value===c.provider)&&['configured','missing','unavailable'].includes(c.status))||!validSettings(value.settings)||!Array.isArray(value.adapters)||!value.adapters.every(a=>text(a.id)&&providers.some(p=>p.value===a.provider)&&Array.isArray(a.models)&&Array.isArray(a.slots)&&Array.isArray(a.endpoints))||!Array.isArray(value.references)||!value.references.every(validReference)||!Array.isArray(value.operations)||!value.operations.every(validOperation)||!value.initialization||!Array.isArray(value.initialization.blockers)||!value.links)throw Error('Invalid setup snapshot');
   const changed=data&&data.instanceId!==value.instanceId;
   if(!changed&&data&&(value.credentialRevision<data.credentialRevision||value.settings.revision<data.settings.revision||value.operations.some(o=>{const old=data.operations.find(p=>p.operationId===o.operationId);return old&&o.revision<old.revision;})))throw Error('Stale setup snapshot');
-  if(changed){clearKeyTests();epoch++;activationReady=false;secret='';file=null;uploadId=null;consent.clear();uncertain.clear();clearSample();if(settingsDraft)settingsConflict=true;message='设置服务已更新，请核对当前配置后继续。';}
+  if(changed){clearKeyTests();epoch++;activationReady=false;secret='';clearFileSelection();consent.clear();uncertain.clear();clearSample();if(settingsDraft)settingsConflict=true;message='设置服务已更新，请核对当前配置后继续。';}
   if(data&&(changed||value.settings.revision!==data.settings.revision||value.credentialRevision!==data.credentialRevision))consent.clear();
   if(!settingsDraft||!changes(settingsBase,settingsDraft).length){settingsDraft=clone(value.settings.saved);settingsBase=clone(value.settings.saved);settingsRevision=value.settings.revision;}else if(settingsRevision!==value.settings.revision)settingsConflict=true;
   data=value;stale=false;unavailable=false;host().onMode(value.mode);
@@ -81,7 +106,7 @@ export function createSelfSetupView(client,render,host){
  function saveKey(){if(!ready())return;if(!secret.trim()){error='请填写 API Key 后保存。';render();return;}const key=secret.trim(),provider=credentialProvider,operationId=crypto.randomUUID();secret='';document.getElementById('setup-key').value='';return mutate('credentials',{provider,key,expectedRevision:data.credentialRevision,operationId},async r=>{if(r?.provider!==provider||!text(r.credentialRef)||!whole(r.revision))throw Error('Invalid credential receipt');message='API Key 已保存到本机，正在测试连接…';const savedEpoch=epoch;await testKey({id:r.credentialRef,provider},operationId,true);if(savedEpoch===epoch)message='API Key 已保存到本机。请在模型配置中手动选择；当前使用的凭据未改变。';});}
  async function upload(){if(!ready()||!file)return;const selected=file,t={epoch,instance:data.instanceId};writing=t;clearTimeout(timer);reading?.controller.abort();reading=null;error='';message='正在本机转换音频…';render();
   try{const audio=await encodeSetupReference(selected);if(t.epoch!==epoch||t.instance!==data?.instanceId)return;const operationId=uploadId||crypto.randomUUID();uploadId=operationId;
-   const r=await client.request('/api/self-setup/reference',{method:'POST',body:{instanceId:t.instance,operationId,...audio}});if(t.epoch!==epoch||t.instance!==data?.instanceId)return;if(!validReference(r))throw Error('音频保存回执无法核对，请刷新。');form.referenceId=r.id;file=null;uploadId=null;message='参考音频已保存到本机，尚未发送到云端。';
+   const r=await client.request('/api/self-setup/reference',{method:'POST',body:{instanceId:t.instance,operationId,...audio}});if(t.epoch!==epoch||t.instance!==data?.instanceId)return;if(!validReference(r))throw Error('音频保存回执无法核对，请刷新。');form.referenceId=r.id;clearFileSelection();message='参考音频已保存到本机，尚未发送到云端。';
   }catch(e){if(t.epoch===epoch){error=e.status?'音频保存结果尚未确认，请刷新核对。':e.message;}}
   finally{if(writing===t){writing=null;redraw();if(visible())await refresh();}}
  }
@@ -117,7 +142,7 @@ export function createSelfSetupView(client,render,host){
  }
  function voiceView(){return el('section',{class:'card'},el('h2',{},'创建自己的音色 · 阿里云百炼'),modelHelp(),
   el('p',{class:'field-help'},'参考音频为 WAV、MP3 或 M4A，10 秒至 5 分钟，不超过 20 MiB。上传前仅在本机转换为单声道 WAV，原文件不改动。'),
-  el('label',{class:'field'},el('span',{},'选择自己的参考音频'),el('input',{type:'file',id:'setup-audio',accept:'.wav,.mp3,.m4a',disabled:!!writing,onChange:e=>{file=e.target.files?.[0]||null;uploadId=null;error='';render();}})),file&&el('p',{class:'subtle'},'已选择：'+file.name),
+  el('label',{class:'field'},el('span',{},'选择自己的参考音频'),fileControl()),file&&el('p',{class:'subtle'},'已选择：'+file.name),
   button('仅上传到本机',upload,{id:'setup-upload',disabled:!ready()||!file}),el('p',{class:'field-help'},link('支持的音频与音色复刻说明',data?.links.voiceClone)),
   el('div',{class:'form-grid'},select('已保存的参考音频','setup-reference',form.referenceId,[{value:'',label:'请选择'},...(data?.references||[]).map((r,i)=>({value:r.id,label:`参考 ${i+1} · ${(r.durationMs/1000).toFixed(1)} 秒 · ${(r.bytes/1024/1024).toFixed(2)} MiB`}))],v=>{form.referenceId=v;render();},{disabled:!!writing}),
    field('音色名称','setup-voice-label',form.label,v=>{form.label=v;redraw();},{maxLength:80,disabled:!!writing,onCompositionStart:()=>{composing=true;},onCompositionEnd:()=>{composing=false;render();}}),select('音色模型','setup-voice-model',form.targetModel,voiceModels,v=>{form.targetModel=v;render();},{disabled:!!writing}),
@@ -143,7 +168,8 @@ export function createSelfSetupView(client,render,host){
    data.initialization.blockers.length?el('div',{},notice('以下项目完成后才能准备启动：'),el('ul',{},data.initialization.blockers.map(b=>el('li',{},b)))):el('p',{},'初始化条件已满足。准备配置后，请重新启动桌宠。'),
    button('完成设置，准备重启',finish,{id:'setup-finish',disabled:!ready()||!!data.initialization.blockers.length||settingsConflict||!!changes(settingsBase,settingsDraft).length}),(activationReady||data.initialization.completed)&&el('div',{class:'notice'},el('p',{},'在安装目录的终端中执行以下命令，随后使用原启动入口：'),el('code',{},'npm run configure-local -- --activate-existing')),el('p',{class:'field-help'},'工程任务需要另外安装并登录执行器：',link('DeepSeek Harness',data.links.harness),' · ',link('Codex',data.links.codex),'。未安装时，对应任务转发不可用。'))));
  }
- const api={sync,refresh,view,modelHelp,getCredentials,validBindings,getAdapters:()=>data?.adapters,available:()=>!!data,mode:()=>data?.mode,isComposing:()=>composing&&visible(),dispose:stop};
+ const api={sync,refresh,view,modelHelp,getCredentials,validBindings,getAdapters:()=>data?.adapters,available:()=>!!data,mode:()=>data?.mode,isComposing:()=>composing&&visible(),isSelectingFile,dispose:stop};
+ document.addEventListener('click',resumeFromDocument,true);document.addEventListener('keydown',resumeFromDocument,true);
  document.addEventListener('visibilitychange',()=>{sync();redraw();});window.addEventListener('pagehide',stop);window.addEventListener('pageshow',()=>{sync();redraw();});
  return api;
 }

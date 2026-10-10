@@ -23,7 +23,7 @@ test('one necessary source expansion keeps first plan read-only and preserves un
   const f=await setup(t);let calls=0;let expanded!:MemoryTurnInput;const revision=f.store.revision(f.owned);
   const port=f.port(async input=>{
     calls++;f.assertUnchanged();assert.equal(f.store.revision(f.owned),revision);
-    const db=new Database(f.f.filename,{readonly:true});assert.equal(db.prepare("SELECT * FROM memory_operations WHERE operation_id='delete-cat'").get(),undefined);db.close();
+    const db=f.f.track(new Database(f.f.filename,{readonly:true}));assert.equal(db.prepare("SELECT * FROM memory_operations WHERE operation_id='delete-cat'").get(),undefined);db.close();
     if(calls===1){assert.equal(input.messages.length,2);assert.ok(!input.sources.some(s=>s.id==='seed:assistant'));return f.first(input);}
     expanded=input;assert.equal(input.messages.length,4);assert.ok(input.sources.some(s=>s.id==='daily'));return f.complete(input);
   });
@@ -73,7 +73,7 @@ test('late same-role descendant without epoch bump is detected during final clos
 
 test('source version changed after expansion rejects the second plan',async t=>{
   const f=await setup(t);let calls=0;const result=await f.run(f.port(async input=>{
-    if(++calls===1)return f.first(input);const db=new Database(f.f.filename);db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='daily'").run();db.close();return f.complete(input);
+    if(++calls===1)return f.first(input);const db=f.f.track(new Database(f.f.filename));db.prepare("UPDATE memory_records SET version=version+1 WHERE character_id='companion' AND id='daily'").run();db.close();return f.complete(input);
   }));
   assert.equal(result.rejectionCode,'stale_lifecycle_source');assert.equal(calls,2);f.assertUnchanged();
 });
@@ -94,13 +94,13 @@ test('cancellation while awaiting supplementary plan cannot persist its late fra
 });
 
 test('SQL failure in final fragment write rolls back all second-plan writes and first-plan IDs',async t=>{
-  const f=await setup(t);const db=new Database(f.f.filename);f.f.track(db);db.exec("CREATE TRIGGER fail_expansion BEFORE INSERT ON memory_records WHEN new.fragment_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'expanded_write_failure'); END");let calls=0;
+  const f=await setup(t);const db=f.f.track(new Database(f.f.filename));t.after(()=>db.close());db.exec("CREATE TRIGGER fail_expansion BEFORE INSERT ON memory_records WHEN new.fragment_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'expanded_write_failure'); END");let calls=0;
   await assert.rejects(()=>f.run(f.port(async input=>++calls===1?f.first(input):f.complete(input))),/expanded_write_failure/);assert.equal(calls,2);f.assertUnchanged();assert.equal(db.prepare("SELECT * FROM memory_operations WHERE operation_id='delete-cat'").get(),undefined);
 });
 
 test('active ineligible memory cannot be silently deleted or disguised as a readable missing source',async t=>{
   const f=await setup(t);f.store.apply(change({type:'add',id:'ineligible',text:'猫的关联记忆',sourceIds:['cat-raw']},'seed-ineligible',f.owned));
-  const db=new Database(f.f.filename);f.f.track(db);db.prepare("UPDATE memory_records SET evidence_eligible=0 WHERE character_id='companion' AND id='ineligible'").run();let calls=0;
+  const db=f.f.track(new Database(f.f.filename));t.after(()=>db.close());db.prepare("UPDATE memory_records SET evidence_eligible=0 WHERE character_id='companion' AND id='ineligible'").run();let calls=0;
   const result=await f.run(f.port(async input=>{calls++;return f.first(input);}));
   assert.equal(result.rejectionCode,'unresolved_memory_suppression');assert.equal(calls,1);f.assertUnchanged();assert.equal(f.store.inspect(f.owned,'ineligible')!.state,'active');
 });

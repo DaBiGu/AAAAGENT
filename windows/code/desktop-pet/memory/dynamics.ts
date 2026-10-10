@@ -8,6 +8,7 @@ export interface DynamicsParameters {
   readonly reinforcementRate: number;
   readonly weights: { readonly baseline: number; readonly activity: number; readonly importance: number; readonly emotion: number };
   readonly threshold: number;
+  /** Legacy math-configuration compatibility only; foreground retrieval has no count cap. */
   readonly maxMemories: number;
 }
 export const DEFAULT_DYNAMICS: Readonly<DynamicsParameters> = Object.freeze({

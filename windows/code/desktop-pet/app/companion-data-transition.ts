@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isOutside } from '../core/platform-files.js';
 import { lstat, readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { companionDatabaseFile, legacyTrialDatabaseFile, COMPANION_DATA_PROFILE } from './companion-data.js';
@@ -27,7 +28,7 @@ export function validateCompanionTransition(current: TrialConfiguration, next: T
     || next.database !== companionDatabaseFile(next.projectRoot)) fail();
 }
 async function regular(root: string, path: string): Promise<boolean> {
-  if (!path.startsWith(resolve(root) + '/')) fail();
+  if (resolve(path) === resolve(root) || isOutside(root, path)) fail();
   for (let parent = path; parent !== resolve(root); parent = dirname(parent))
     if (!await absent(parent) && (await lstat(parent)).isSymbolicLink()) fail();
   if (await absent(path)) return false;

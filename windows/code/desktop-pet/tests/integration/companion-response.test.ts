@@ -19,7 +19,7 @@ const currentText = '收起对话面板后按空格出现蓝框。';
 type Wire = { messages: { role: string; content: string }[] };
 
 function fixture(t: TestContext, modelText: string, prompt = customPrompt) {
-  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../.local/speech-control-02/tmp');
+  const parent = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../artifacts/W0-I/speech-control-02/tmp');
   mkdirSync(parent, { recursive: true });
   const directory = mkdtempSync(join(parent, 'response-'));
   const options = { filename: join(directory, 'companion.sqlite'), retention: CONFIRMED_RETENTION, invitations: confirmedInvitationPolicy('Asia/Shanghai') };

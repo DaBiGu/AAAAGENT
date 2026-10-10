@@ -59,17 +59,20 @@ const config=validateTrialConfiguration({version:1,desktopHost:process.platform=
   database:resolve(root,'.local/data/companion.sqlite'),budgetFile:resolve(root,'.local/model-evaluation/budget.json'),budgetBatchId:'local-'+randomUUID(),budgetMode:input.budgetMode,limitMicros:input.limitMicros,
   // Compatibility fields are inert for user-trial; no extra trial quotas are imposed.
   phaseLimitMicros:0,maxCalls:0,operationLimits:{admission:0,dialogue:0,memory_turn:0,summary:0,perception:0,tts:0},
-  models:input.models,memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000}});
-if(!input.voiceId||input.voiceId==='YOUR_AUTHORIZED_VOICE_ID'||!isAbsolute(input.voiceRegistryFile??''))
-  throw Error('MiniMax needs your own authorized voice ID and genuine local registration metadata. No voice is cloned or provisioned by this tool.');
-const registryPath=await realpath(input.voiceRegistryFile),registryRelative=relative(root,registryPath);
-if(!isOutside(root,registryPath))throw Error('Keep the private voice registry outside this source package.');
-const voices=await RegisteredVoiceStore.open(registryPath);
-const credentialRef=credentialRegistry(config).ref(config.models.tts.credentialFile,'dashscope');
-voices.resolve({voiceId:input.voiceId,provider:'dashscope',endpoint:config.models.tts.endpoint,targetModel:config.models.tts.model,credentialRef});
+  models:input.models,...(input.localSpeech?{localSpeech:input.localSpeech}:{}),...(input.outputMode!==undefined?{outputMode:input.outputMode}:{}),memory:{mode:'strict',scheduling:'semantic-admission',timeoutMs:300000}});
+let voices;
 const managed=defaultManagedSettings(config);
-managed.providers.tts={...managed.providers.tts,adapterId:'minimax-tts',voice:input.voiceId};
-delete managed.providers.tts.language;
+if(!config.localSpeech?.tts){
+  if(!input.voiceId||input.voiceId==='YOUR_AUTHORIZED_VOICE_ID'||!isAbsolute(input.voiceRegistryFile??''))
+    throw Error('MiniMax needs your own authorized voice ID and genuine local registration metadata. No voice is cloned or provisioned by this tool.');
+  const registryPath=await realpath(input.voiceRegistryFile);
+  if(!isOutside(root,registryPath))throw Error('Keep the private voice registry outside this source package.');
+  voices=await RegisteredVoiceStore.open(registryPath);
+  const credentialRef=credentialRegistry(config).ref(config.models.tts.credentialFile,'dashscope');
+  voices.resolve({voiceId:input.voiceId,provider:'dashscope',endpoint:config.models.tts.endpoint,targetModel:config.models.tts.model,credentialRef});
+  managed.providers.tts={...managed.providers.tts,adapterId:'minimax-tts',voice:input.voiceId};
+  delete managed.providers.tts.language;
+}
 if(input.context)managed.context=input.context;
 validateManagedSettings(managed,config,voices);
 const dir=resolve(root,'.local/model-evaluation/trial/user-trial');
@@ -81,7 +84,7 @@ await mkdir(dir,{recursive:true,mode:0o700});await mkdir(dirname(config.database
 restrictPrivatePathSync(dir);restrictPrivatePathSync(dirname(config.database));
 const raw=JSON.stringify(config,null,2)+'\n';
 await writeFile(config.budgetFile,JSON.stringify({batchId:config.budgetBatchId,currency:'CNY',budgetMode:config.budgetMode,limitMicros:config.limitMicros,blocked:false,entries:[]})+'\n',{flag:'wx',mode:0o600});
-await writeFile(voiceFile,JSON.stringify(voices.snapshot())+'\n',{flag:'wx',mode:0o600});
+await writeFile(voiceFile,JSON.stringify(voices?.snapshot()??{version:1,revision:0,voices:[]})+'\n',{flag:'wx',mode:0o600});
 await writeFile(resolve(dir,'management-settings.json'),JSON.stringify({version:1,current:{revision:1,savedAt:new Date().toISOString(),settings:managed},history:[]})+'\n',{flag:'wx',mode:0o600});
 await writeFile(resolve(dir,'config.json'),raw,{flag:'wx',mode:0o600});
 await writeFile(resolve(dir,'activation.json'),JSON.stringify({version:1,phaseId:config.phaseId,status:process.argv.includes('--activate')?'active':'prepared',configSha256:hash(raw)})+'\n',{flag:'wx',mode:0o600});

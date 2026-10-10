@@ -45,7 +45,7 @@ test('DeepSeek estimates use peak CNY prices and do not depend on cache discount
 });
 test('comparison authorizer refuses other operations, duplicate case attempts, unknown cost and changed historical records', async t => {
   const root = await mkdtemp(join(tmpdir(), 'pet-comparison-auth-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const directory = `${root}/.local/deepseek-comparison`, ledger = `${root}/.local/model-evaluation`;
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`, ledger = `${root}/artifacts/W0-I/model-evaluation`;
   await mkdir(directory, { recursive: true }); await mkdir(ledger, { recursive: true });
   const entries = Array.from({ length: 113 }, (_, i) => ({ operationId: `old:${i}`, model: 'qwen', reservedMicros: 1_000_000, actualMicros: i === 0 ? 195738 : 0, status: 'settled' }));
   await writeFile(`${ledger}/budget.json`, JSON.stringify({ batchId: 'D09-S1-20260906-01', currency: 'CNY', limitMicros: 10_000_000, blocked: false, entries }));
@@ -67,14 +67,14 @@ test('comparison authorizer refuses other operations, duplicate case attempts, u
 });
 test('both stop and complete records prevent loading more phase inputs', async t => {
   const root = await mkdtemp(join(tmpdir(), 'pet-comparison-stop-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const directory = `${root}/.local/deepseek-comparison`; await mkdir(directory, { recursive: true });
+  const directory = `${root}/artifacts/W0-I/deepseek-comparison`; await mkdir(directory, { recursive: true });
   for (const name of ['STOPPED.json', 'COMPLETED.json']) {
     await writeFile(`${directory}/${name}`, '{}'); await assert.rejects(assertComparisonOpen(root), /has ended/); await rm(`${directory}/${name}`);
   }
 });
 test('next case requires ordered review of immutable original evidence, not only an applied result', async t => {
   const root = await mkdtemp(join(tmpdir(), 'pet-comparison-review-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const dir = `${root}/.local/deepseek-comparison`, runId = 'lifecycle-deepseek-test', out = `${root}/.local/${runId}`;
+  const dir = `${root}/artifacts/W0-I/deepseek-comparison`, runId = 'lifecycle-deepseek-test', out = `${root}/artifacts/W0-I/${runId}`;
   await mkdir(dir, { recursive: true }); await mkdir(out, { recursive: true });
   const bundle = { cases: [{ id: 'raw-only', maxPlans: 1 }] } as MemoryTrialBundle;
   assert.equal(await reviewedComparisonCount(root, bundle, 'config'), 0);

@@ -11,6 +11,7 @@ import type { ManagementMemoryPort } from '../../contracts/management.js';
 
 test('local HTTP authorization, host, origin and routing reject foreign access before business calls', async t => {
   const f = await fixture(t), uiRoot = join(f.c.projectRoot, 'ui'); await mkdir(uiRoot); await writeFile(join(uiRoot, 'index.html'), '<h1>controlled HTTP fixture</h1>');
+  for (const name of ['appearance.mjs', 'native-workbench-view.mjs']) await writeFile(join(uiRoot, name), 'export const originalModule = true;');
   const settings = await ManagementSettingsStore.open(join(f.c.projectRoot, 'settings.json'), f.c), runtime = new ManagementRuntime(f.c.sourceRevision);
   let businessCalls = 0;
   const memory: ManagementMemoryPort = {
@@ -18,11 +19,31 @@ test('local HTTP authorization, host, origin and routing reject foreign access b
     edit() { throw new Error('PRIVATE provider key or user data'); }, context() { throw new Error(); },
     prompt() { throw new Error(); }, savePrompt() { throw new Error(); },
   };
-  const server = await startManagementServer({ uiRoot, settings, memory, snapshot: () => ({ apiVersion: 1, runtime: runtime.identity(),
+  let frameOrigin: string | undefined = 'http://127.0.0.1:59916';
+  const server = await startManagementServer({ uiRoot, settings, memory, nativeFrameOrigin: () => frameOrigin, snapshot: () => ({ apiVersion: 1, runtime: runtime.identity(),
     modules: runtime.modules(), events: [], settings: settings.snapshot(), adapters: [], credentials: [], characters: [] }) });
   t.after(() => server.close());
   const headers = { Authorization: 'Bearer ' + server.token, Origin: server.origin, 'Content-Type': 'application/json' };
-  assert.equal((await fetch(server.origin + '/')).status, 200);
+  for (const path of ['/', '/index.html']) {
+    const response = await fetch(server.origin + path); assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /<meta name="aaa-management-entry" content="original-management" data-version="0.1.0">/);
+    assert.equal((html.match(/name="aaa-management-entry"/g) ?? []).length, 1);
+    assert(!html.includes('content="mounted-readonly"'));
+    assert.match(html, /<meta name="aaa-management-frame-origin" content="http:\/\/127\.0\.0\.1:59916" data-version="0.1.0">/);
+    assert.match(response.headers.get('content-security-policy')!, /frame-src 'self' http:\/\/127\.0\.0\.1:59916/);
+  }
+  for (const invalid of [undefined, server.origin, 'https://evil.invalid', 'http://127.0.0.1:59916/other', 'http://127.0.0.1:99999']) {
+    frameOrigin = invalid; const response = await fetch(server.origin + '/');
+    assert(!(await response.text()).includes('aaa-management-frame-origin'));
+    assert(!response.headers.get('content-security-policy')!.includes('frame-src'));
+  }
+  frameOrigin = 'http://127.0.0.1:59916';
+  for (const name of ['appearance.mjs', 'native-workbench-view.mjs']) {
+    const imported = await fetch(server.origin + '/' + name);
+    assert.equal(imported.status, 200); assert.match(imported.headers.get('content-type')!, /javascript/);
+    assert.equal(await imported.text(), 'export const originalModule = true;');
+  }
   assert.equal((await fetch(server.origin + '/api/snapshot')).status, 401);
   assert.equal((await fetch(server.origin + '/api/snapshot', { headers: { ...headers, Origin: 'https://foreign.invalid' } })).status, 403);
   const badHost = await new Promise<number>(resolve => { const req = request(server.origin + '/api/snapshot', { headers: { ...headers, Host: 'foreign.invalid' } }, res => { res.resume(); res.on('end', () => resolve(res.statusCode!)); }); req.end(); });

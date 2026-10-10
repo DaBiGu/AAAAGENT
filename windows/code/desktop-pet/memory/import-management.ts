@@ -1,4 +1,3 @@
-import { isPrivateFileSync, restrictPrivatePathSync } from '../core/platform-files.js';
 import { constants, closeSync, lstatSync, mkdirSync, openSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -73,8 +72,6 @@ function openDatabase(filename: string, instanceId: string): Database.Database {
       const fd = openSync(filename, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       closeSync(fd); created = true;
     }
-    if (created) restrictPrivatePathSync(filename);
-    if (!isPrivateFileSync(filename)) throw new Error('unsafe_import_database');
     const db = new Database(filename, {fileMustExist:true});
     try {
       const app = db.pragma('application_id', {simple:true}), version = db.pragma('user_version', {simple:true});

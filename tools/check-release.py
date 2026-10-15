@@ -7,6 +7,7 @@ forbidden_dirs={'.git','node_modules','dist','build','data','artifacts','.local'
 forbidden_suffixes={'.moc3','.onnx','.sqlite','.db','.webm','.mp4','.wav','.mp3','.wasm','.dylib','.so','.apk','.pkg','.dmg','.p12','.pfx','.pem','.key','.log','.jsonl'}
 # Reviewed T3 build resources; exact paths and bytes, not an extension exemption.
 approved_resources={
+ 'code/desktop-pet/tools/pet-cloud/deploy/.env.example':'2c73fdcf0486f5a39e61daf7004b00b6a1f1efb63c48121a7443f3151796b9ec',
  't3-source/apps/web/src/assets/notification-completion.mp3':'910311c1dbe3191834ce984cfbc7cfcc258f20038d41f94f08711b28063cd286',
  't3-source/apps/web/src/assets/notification-input.mp3':'5708991465e01730bdfac605708b578844039532c51db26174aa362bd71b22e2',
  't3-source/apps/web/src/assets/snap-shot-whoosh.mp3':'2cf13b9a9af15b616e255256cd773efa3fdd17c7346475f5b13097ef40b12ad3',
@@ -33,7 +34,7 @@ for path in sorted(root.rglob('*')):
  if any(p in forbidden_dirs for p in rel.parts) or (path.suffix.lower() in forbidden_suffixes and not approved) or path.name.endswith(('.model3.json','.exp3.json','.motion3.json')):
   issues.append({'path':str(rel),'rule':'excluded_resource'})
  if path.stat().st_size>50*1024*1024:issues.append({'path':str(rel),'rule':'oversized_file'})
- if path.name.startswith('.env') or path.name.startswith(('id_rsa','id_ed25519')):issues.append({'path':str(rel),'rule':'private_config'})
+ if (path.name.startswith('.env') and not approved) or path.name.startswith(('id_rsa','id_ed25519')):issues.append({'path':str(rel),'rule':'private_config'})
  # This scanner's pattern definitions are intentional, not packaged credentials.
  if path.resolve()!=Path(__file__).resolve():
   for name,pattern in rules.items():

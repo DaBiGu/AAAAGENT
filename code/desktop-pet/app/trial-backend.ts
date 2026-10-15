@@ -63,6 +63,7 @@ import { prototypeSnapshot } from './memory-planning-prototype.js';
 import { runMemorySemanticAttempt, type SemanticAttemptEvent } from './memory-semantic-adapter.js';
 import { buildMemorySemanticFormat } from './memory-semantic-format.js';
 import { TrialAdmission } from './trial-admission.js';
+import { openLocalSocialConnection, type LocalSocialConnection } from '../companion/cloud/local.js';
 
 /** Keep production trial calls within the reviewed text bounds without truncating user content or replies. */
 export class TrialTransport extends ProviderTransport {
@@ -231,6 +232,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
   let wake: WakeManager | undefined;
   let managementForget: StrictManagementForget | undefined;
   let memoryImport: SqliteMemoryImportManagement | undefined;
+  let socialConnection: LocalSocialConnection | undefined;
   let desktopWork: import('../contracts/desktop-work.js').DesktopWorkPort | undefined;
   let desktopWorkbench: DesktopWorkbench | undefined;
   let management: Awaited<ReturnType<typeof startRuntimeManagement>> | undefined;
@@ -282,7 +284,9 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     }
     const presentation = await PresentationSettingsStore.open(resolve(configuration.projectRoot, '.local/data/presentation-settings.json'),
       await readPresentationCatalog(configuration.projectRoot), policy => process.stdout.write(JSON.stringify({ channel: 'presentation_policy', policy }) + '\n'));
-    const dialogue=new JsonDialogueProvider(endpoint('dialogue'),transport,()=>presentation.allowedIntent(),undefined,{outputTokenLimit:configuration.models.dialogue.outputTokenLimit,...(settings.effective.providers.dialogue.temperature===undefined?{}:{temperature:settings.effective.providers.dialogue.temperature})});
+    try { if(configuration.purpose==='user-trial')socialConnection=openLocalSocialConnection(configuration.projectRoot); }
+    catch { process.stderr.write('Cloud social context unavailable; local companion memory remains available.\n'); }
+    const dialogue=new JsonDialogueProvider(endpoint('dialogue'),transport,()=>presentation.allowedIntent(),undefined,{outputTokenLimit:configuration.models.dialogue.outputTokenLimit,...(settings.effective.providers.dialogue.temperature===undefined?{}:{temperature:settings.effective.providers.dialogue.temperature})},socialConnection);
     const foregroundBudget=inputBudgetInfo(configuration.models.dialogue,settings.effective.context.targetInputTokens);
     const strictProvider=new StrictTrialMemoryProvider(store, endpoint('memory_turn'), transport, configuration.phaseId, evidence, configuration.models.memory_turn.thinking);
     const memory = new ObservedTrialMemory(store, {
@@ -426,7 +430,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
       if (stopping) return; stopping = true; clearInterval(cleanupTimer); lines.close(); process.stdin.pause();
       managementForget?.close();
       try { await wake?.close(); await wechat?.close(); await desktopWork?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain(); await settings.drain(); await presentation.drain(); }
-      finally { try { await session!.close(); } finally { await release(); } }
+      finally { try { await session!.close(); } finally { try { await socialConnection?.close(); } finally { await release(); } } }
     };
     let submitted = false;
     lines.on('line', line => {
@@ -449,7 +453,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     await wake?.close(); await wechat?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain();
     await memoryImport?.close();
     if (session) await session.close(); else store?.close();
-    await release(); throw error;
+    try { await socialConnection?.close(); } finally { await release(); } throw error;
   }
 }
 

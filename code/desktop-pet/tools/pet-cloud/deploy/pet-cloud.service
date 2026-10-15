@@ -1,0 +1,24 @@
+[Unit]
+Description=Desktop companion social role
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pet-cloud
+Group=pet-cloud
+WorkingDirectory=/opt/AAAAGENT/code/desktop-pet
+EnvironmentFile=/etc/pet-cloud.env
+ExecStart=/usr/bin/node /opt/AAAAGENT/code/desktop-pet/tools/pet-cloud/cli.mjs serve /var/lib/pet-cloud
+Restart=on-failure
+RestartSec=5
+StateDirectory=pet-cloud
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

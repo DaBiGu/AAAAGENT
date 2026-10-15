@@ -2,12 +2,13 @@
 
 [项目首页](../README.md) · [English](#english)
 
-## 先分清三种信息
+## 信息分别保存
 
 | 层次 | 保存什么 | 怎样进入聊天 |
 | --- | --- | --- |
 | 最近对话 | 按角色、会话和轮次保存的用户与助手原文 | 在预算内优先取连续的完整轮次，保持上一句与下一句衔接 |
 | 陪伴长期记忆 | 有来源的事实、偏好、事件和有效的情绪相关记录 | 通过相关性、活跃度、重要性和情绪强度排序，选少量补入 |
+| 角色社交经历 | 独立角色服务中确认送达的群聊经历；桌宠缓存获准共享的摘要 | 单独带来源注入，计入输入预算，支持共享撤回；见[社交记忆](SOCIAL_MEMORY.md) |
 | 项目与工作记录 | 项目名称、短摘要、详情引用；独立的任务正文与回执 | 工作路由时按需读取，不把全部项目全文放入陪伴记忆 |
 
 原始对话经后台整理后形成长期记忆，再根据当前问题的相关性参与召回。
@@ -26,7 +27,7 @@
 
 `memory/context.ts` 按时间从最新的完整用户轮次向前选取，再恢复时间顺序。若某一轮放不进预算，会停止向更老的轮次取内容，不会跳过最近的大段对话去拼接几条不相邻的旧话，也不单独取一个没有用户起点的助手回复。
 
-摘要和长期记忆只能使用剩余预算。当前输入也参与预算计算，超出预算的历史会被省略。
+前台输入目标默认为 **200,000 Token**，可在网页调整；实际受到接口输入上限、总窗口和输出预留约束。完整请求参与计数，估算方式可在上下文试算中查看。最近对话按完整轮次分页读取，不再受旧 24 条设置截断；摘要和相关长期记忆使用剩余预算。社交参考单独限长，也计入同一预算。
 
 普通后台处理失败不应隐藏后续历史。涉及忘记或纠正的待处理请求有独立保护：旧个人信息可能暂时被排除，避免尚未完成的遗忘操作被下一轮重新引用。这个保护与普通模型整理失败不同。
 
@@ -51,7 +52,7 @@
 有效强化 A' = A + 0.2 × (1 - A)
 ```
 
-只有有效、具备合格来源和动态状态的候选才参与。默认相关性必须大于 0，`P ≥ 0.35`，最终至多补入 6 条，并受剩余输入预算限制。重要性改变半衰期；较强的情绪观察会轻微影响排序，但不会让无关记录越过 `C = 0`。
+只有有效、具备合格来源和动态状态的候选才参与。默认相关性必须大于 0，`P ≥ 0.35`，通过筛选后按剩余输入预算选择，不再设固定 6 条上限。重要性改变半衰期；较强的情绪观察会轻微影响排序，但不会让无关记录越过 `C = 0`。
 
 `C` 当前来自明确的关键词与短语规则。中文按规则分词并匹配，英文进行规范化匹配；少量已实现的关系规则提供补充。
 
@@ -59,11 +60,11 @@
 
 ## 情绪记录怎样使用
 
-Mac 版在 **管理页 → 记忆 → 当前情绪** 展示三个层次：每条消息的观察 O、用户持续情绪 U、桌宠持续心情 M。用户与桌宠状态分别维护；消息保存当时快照，后续推测单独显示，不改写历史。Windows 的这部分尚待移植与验证。
+Mac 版在 **管理页 → 记忆 → 当前情绪** 展示三个层次：每条消息的观察 O、用户持续情绪 U、桌宠持续心情 M。用户与桌宠状态分别维护；消息保存当时快照，后续推测单独显示，不改写历史。Windows 的独立实现与验证范围见 [Windows 记忆说明](../windows/docs/MEMORY.md)。
 
 文字及近期对话通过现有对话请求提供情绪推测；有效音频标注、视频观察及用户明确说明也可作为来源。页面保留来源和置信度，未知强度为空（null），不等于零；缺少或损坏的模型字段不更新状态，聊天正文仍正常处理。视频保留有限七类判断，音频只采用合法返回标注。
 
-最近完整问答和相关记忆优先占用输入预算，情绪背景只使用剩余空间；长期记忆公式、E 与原半衰期保持。普通状态更新不会使当前回复失效；纠正、删除或屏蔽来源时，依赖它的状态和后续引用也受来源校验约束。
+当前双方情绪预留少量可配置空间（默认 512 Token）；随后优先装入最近完整问答，再补摘要和相关记忆，历史消息的详细情绪快照使用剩余空间。长期记忆公式、E 与原半衰期保持。普通状态更新不会使当前回复失效；纠正、删除或屏蔽来源时，依赖它的状态和后续引用也受来源校验约束。
 
 后台增强推测接口已预留，生产中的增强模型与 thinking 尚未配置。合成测试验证了接线、持久化、隐私失效和并发保护，真实情绪理解效果仍需使用中确认。
 
@@ -111,17 +112,17 @@ Mac 版在 **管理页 → 记忆 → 当前情绪** 展示三个层次：每条
 
 ## English
 
-### Three distinct stores
+### Separate information stores
 
 **Recent conversation** holds verbatim user and assistant turns, scoped to a character and session. **Companion memory** holds sourced facts, preferences, events and valid emotional observations. **Work context** holds project names, abstracts and references, with separate task bodies and receipts. Engineering histories are not loaded wholesale into companion chat.
 
-A saved transcript is not automatically a successfully extracted long-term memory. Nor does a stored record guarantee selection on the next turn.
+**Social experiences** are group interactions confirmed by delivery receipts in a separate role service. The desktop caches only permitted summaries, preserves their provenance and applies sharing revocations. See [Social roles and memory](SOCIAL_MEMORY.en.md).
 
 ### Foreground and background
 
 The application saves the current input, performs necessary request/privacy checks, and queues long-term maintenance in the background. The foreground assembles a valid context and requests a reply without waiting for the full maintenance job. Background proposals are committed only after checking role, source, version and operation boundaries.
 
-Context assembly reserves the base prompt and current input, then selects a **contiguous suffix of complete recent turns**, followed by summaries and relevant memories. It does not skip a large recent turn to pick isolated older messages. Budget exhaustion can still omit history.
+Context assembly reserves the base prompt and current input, then selects a **contiguous suffix of complete recent turns**, followed by summaries and relevant memories. It does not skip a large recent turn to pick isolated older messages. Budget exhaustion can still omit history. The default foreground input target is **200,000 tokens**, adjustable in management and bounded by the provider input limit, context window and output reserve. Recent turns are paged by capacity without the old 24-message cap. The full request, including bounded social references, is counted; the context preview identifies estimation methods.
 
 Ordinary maintenance failure should not hide newer turns. Pending forgetting/correction requests are different: a privacy boundary may temporarily exclude older personal information so it is not reintroduced before the operation completes. Background processing does not eliminate all foreground latency: request classification, reads and inference still take time.
 
@@ -136,17 +137,17 @@ P = C × (0.55 + 0.25A + 0.15I + 0.05E)
 A' = A + 0.2 × (1 - A)     for eligible reinforcement
 ```
 
-`C` is query relevance, `A` activation, `I` importance, and `E` emotional intensity. Values are bounded to 0–1; importance takes 0, 0.5 or 1. Eligible active records need `C > 0` and `P ≥ 0.35`. At most six memories are included, subject to the remaining input budget. Importance extends activation half-life; emotion adjusts ranking modestly and cannot make an unrelated record relevant.
+`C` is query relevance, `A` activation, `I` importance, and `E` emotional intensity. Values are bounded to 0–1; importance takes 0, 0.5 or 1. Eligible active records need `C > 0` and `P ≥ 0.35`. Eligible memories are selected by remaining input budget, without a fixed six-item cap. Importance extends activation half-life; emotion adjusts ranking modestly and cannot make an unrelated record relevant.
 
 Relevance uses keyword and phrase matching, with a small set of relation rules. Decay changes recall priority without automatically deleting long-term memory. Eligible user reiteration or confirmation can reinforce a record; viewing, searching and previews do not.
 
 ### Emotional context
 
-On macOS, **Management → Memory → Current emotion** shows each message's observation (O), sustained user emotion (U) and sustained companion mood (M). User and companion states are independent. Each message freezes the states at that time; later analyses are displayed separately and never rewrite the original snapshot. This feature has not yet been ported to or validated on Windows.
+On macOS, **Management → Memory → Current emotion** shows each message's observation (O), sustained user emotion (U) and sustained companion mood (M). User and companion states are independent. Each message freezes the states at that time; later analyses are displayed separately and never rewrite the original snapshot. See the separate [Windows memory guide](../windows/docs/MEMORY.md) for that implementation and validation scope.
 
 Text and recent dialogue provide emotion assessments through the existing dialogue request. Valid audio annotations, video observations and explicit user statements can also provide evidence. Sources and confidence remain visible; unknown intensity is null, not zero. Missing or malformed model fields leave state unchanged without breaking the reply. Video retains limited seven-category classification, and only valid returned audio annotations are used.
 
-Recent complete turns and relevant memories take input-budget priority, with emotion context using remaining space. The existing long-term memory formula, E and half-lives are unchanged. Ordinary emotion updates do not invalidate an in-flight reply; corrections, deletion and blocked sources still invalidate dependent states and later references.
+A small configurable reserve (512 tokens by default) holds current emotional context; complete recent turns follow, then summaries and relevant memories. Detailed historical emotion snapshots use the remaining space. The existing long-term memory formula, E and half-lives are unchanged. Ordinary emotion updates do not invalidate an in-flight reply; corrections, deletion and blocked sources still invalidate dependent states and later references.
 
 The stronger background-inference interface is available, but no stronger model or thinking configuration is enabled. Synthetic tests cover wiring, persistence, privacy invalidation and concurrency; real emotional understanding still requires use-based validation.
 

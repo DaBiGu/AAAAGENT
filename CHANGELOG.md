@@ -6,6 +6,7 @@
 
 | 修改时间（北京时间） | 一句话说明 | 提交 |
 | --- | --- | --- |
+| 2026-10-15 21:40 | Mac 新增独立角色社交服务与桌宠摘要同步，补充架构、记忆边界、接入和部署说明。 | [134d7d4](https://github.com/phoiex/AAAAGENT/commit/134d7d4ea6e241bc38caeae85a1dffa29b37620d) |
 | 2026-10-11 02:11 | Mac 0.3.0-dev.1 同步 10 月 10 日交接包，更新 T3 / Codex / Harness 与视频桌宠，修复公开首配及构建入口。 | [4f5e930](https://github.com/phoiex/AAAAGENT/commit/4f5e9308aa5ef7c14ad2efca9ef0d341c585ecb5) |
 | 2026-10-11 01:49 | 将 V2 延期公告更新为工作台、桌宠和本地模型进展，补充 GPT-SoVITS 训练参考。 | [d94e413](https://github.com/phoiex/AAAAGENT/commit/d94e413ebf39430fd72fa223eb5f26fb4193c617) |
 | 2026-10-11 01:40 | 更新 Windows 平台指南、验证范围与第三方项目署名。 | [8169ff8](https://github.com/phoiex/AAAAGENT/commit/8169ff8dc2038defb3687f8689509b5f0d59fead) |
@@ -38,6 +39,7 @@ Each public repository update is listed newest first, with one sentence per chan
 
 | Time (UTC+8) | One-sentence summary | Commit |
 | --- | --- | --- |
+| 2026-10-15 21:40 | Added a separate social-role service and summary sync for the Mac companion, with architecture, memory, setup and deployment guides. | [134d7d4](https://github.com/phoiex/AAAAGENT/commit/134d7d4ea6e241bc38caeae85a1dffa29b37620d) |
 | 2026-10-11 02:11 | Synced Mac 0.3.0-dev.1 with the October 10 handoff, including T3 / Codex / Harness, video pet support, and public setup and build fixes. | [4f5e930](https://github.com/phoiex/AAAAGENT/commit/4f5e9308aa5ef7c14ad2efca9ef0d341c585ecb5) |
 | 2026-10-11 01:49 | Replaced the V2 delay notice with workbench, pet and local-model progress, plus GPT-SoVITS training references. | [d94e413](https://github.com/phoiex/AAAAGENT/commit/d94e413ebf39430fd72fa223eb5f26fb4193c617) |
 | 2026-10-11 01:40 | Updated Windows setup, validation scope and third-party attribution. | [8169ff8](https://github.com/phoiex/AAAAGENT/commit/8169ff8dc2038defb3687f8689509b5f0d59fead) |

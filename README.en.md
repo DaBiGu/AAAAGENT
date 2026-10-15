@@ -1,3 +1,9 @@
+## Social roles and companion memory · 2026-10-15
+
+The Mac companion can connect to an independent role service and recall permitted group experiences in private dialogue. Private memory, group records and summary caches remain separate, with recovery, sharing revocation and sourced forgetting. Local real-model and cache synchronization checks have passed; real QQ/WeChat group adapters, remote deployment and the Windows companion connection are pending. [Architecture, setup and memory guide](docs/SOCIAL_MEMORY.en.md).
+
+---
+
 ## Mac / Windows development update · 2026-10-11
 
 Mac and Windows **0.3.0-dev.1** now share the October 10 handoff baseline: the newer T3 Code / Flow workbench, Codex / DeepSeek Harness connections, and the new pet. Mac uses Swift / WebKit and the root source tree; Windows uses Electron under `windows/`. Local ASR, TTS and Ollama dialogue extensions are currently available on Windows only.
@@ -34,6 +40,7 @@ The new pet uses video animations and expressions from **[PC2005-cloud/dsh-pet](
 
 | Time | Change |
 | --- | --- |
+| 2026-10-15 21:40 | Added a separate social-role service and summary sync for the Mac companion, with architecture, memory, setup and deployment guides. |
 | 2026-10-11 02:11 | Synced Mac 0.3.0-dev.1 with the October 10 handoff, including T3 / Codex / Harness, video pet support, and public setup and build fixes. |
 | 2026-10-11 01:49 | Replaced the V2 delay notice with workbench, pet and local-model progress, plus GPT-SoVITS training references. |
 | 2026-10-11 01:40 | Updated Windows setup, validation scope and third-party attribution. |
@@ -63,7 +70,7 @@ Local-model scope differs by platform. Mac retains its existing optional local w
   <p><strong><a href="https://www.bilibili.com/video/BV1cueG6sE85/">▶ Watch the full demo on Bilibili</a></strong></p>
   <p>A desktop companion that talks, remembers, and connects your ideas to working agents.</p>
   <p><a href="README.md">简体中文</a> · <strong>English</strong></p>
-  <p><a href="docs/PLATFORMS.md#english">Mac / Windows</a> · <a href="docs/SETUP.md">Setup</a> · <a href="docs/MEMORY.md#english">Memory and context</a> · <a href="docs/PROMPT_REFERENCES.md#english">Prompt references</a> · <a href="docs/LIVE2D.md#english">Bring your own Live2D</a> · <a href="assets/original-design/README.md#english">Whale-girl artwork</a></p>
+  <p><a href="docs/PLATFORMS.md#english">Mac / Windows</a> · <a href="docs/SETUP.md">Setup</a> · <a href="docs/MEMORY.md#english">Memory and context</a> · <a href="docs/SOCIAL_MEMORY.en.md">Social roles</a> · <a href="docs/PROMPT_REFERENCES.md#english">Prompt references</a> · <a href="docs/LIVE2D.md#english">Bring your own Live2D</a> · <a href="assets/original-design/README.md#english">Whale-girl artwork</a></p>
 </div>
 
 > [!IMPORTANT]

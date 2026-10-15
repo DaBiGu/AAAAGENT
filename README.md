@@ -1,3 +1,9 @@
+## 角色社交与桌宠记忆 · 2026-10-15
+
+桌宠现在可以连接独立角色服务，按群选择共享社交摘要，在私人对话中回想角色自己的群聊经历。私人库、群聊库和摘要缓存分别保存；支持断线补齐、共享撤回和带来源的遗忘。Mac 本机已跑通真实模型与缓存同步；真实 QQ／微信群适配、远程部署和 Windows 桌宠接线待接入。 [架构、接入与记忆说明](docs/SOCIAL_MEMORY.md)。
+
+---
+
 ## Mac / Windows 开发版更新 · 2026-10-11
 
 Mac 与 Windows **0.3.0-dev.1** 以 10 月 10 日交接包为共同功能基线，包含新版 T3 Code / Flow 工作台、Codex / DeepSeek Harness 连接和新桌宠。Mac 源码位于根目录，使用 Swift / WebKit；Windows 源码位于 `windows/`，使用 Electron。本地 ASR、TTS 和 Ollama 对话扩展目前仅在 Windows 提供。
@@ -34,6 +40,7 @@ Mac 已同步交接包中的工作台与 Codex / DeepSeek Harness 连接；Windo
 
 | 修改时间 | 本次修改 |
 | --- | --- |
+| 2026-10-15 21:40 | Mac 新增独立角色社交服务与桌宠摘要同步，补充架构、记忆边界、接入和部署说明。 |
 | 2026-10-11 02:11 | Mac 0.3.0-dev.1 同步 10 月 10 日交接包，更新 T3 / Codex / Harness 与视频桌宠，修复公开首配及构建入口。 |
 | 2026-10-11 01:49 | 将 V2 延期公告更新为工作台、桌宠和本地模型进展，补充 GPT-SoVITS 训练参考。 |
 | 2026-10-11 01:40 | 更新 Windows 平台指南、验证范围与第三方项目署名。 |
@@ -63,7 +70,7 @@ Mac 已同步交接包中的工作台与 Codex / DeepSeek Harness 连接；Windo
   <p><strong><a href="https://www.bilibili.com/video/BV1cueG6sE85/">▶ 观看完整演示 · 哔哩哔哩</a></strong></p>
   <p>会聊天、记得相处，也能把想法交给工作 Agent。</p>
   <p><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
-  <p><a href="docs/PLATFORMS.md">Mac / Windows</a> · <a href="docs/SETUP.md">开始使用</a> · <a href="docs/MEMORY.md">记忆与上下文</a> · <a href="docs/PROMPT_REFERENCES.md">提示词与社区参考</a> · <a href="docs/LIVE2D.md">接入自己的 Live2D</a> · <a href="assets/original-design/README.md">DeepSeek 大肥鱼设计稿</a></p>
+  <p><a href="docs/PLATFORMS.md">Mac / Windows</a> · <a href="docs/SETUP.md">开始使用</a> · <a href="docs/MEMORY.md">记忆与上下文</a> · <a href="docs/SOCIAL_MEMORY.md">角色社交</a> · <a href="docs/PROMPT_REFERENCES.md">提示词与社区参考</a> · <a href="docs/LIVE2D.md">接入自己的 Live2D</a> · <a href="assets/original-design/README.md">DeepSeek 大肥鱼设计稿</a></p>
 </div>
 
 > [!IMPORTANT]

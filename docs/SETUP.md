@@ -90,6 +90,10 @@ npm start
 
 完整工作台与已有原生 Mac App 的互通是不同验证项。包内历史 Mac 记录和本轮可复用检查见 [本次 Mac 验证范围](MACOS-20261010.md)；本轮没有在 Windows 主机上证明 Swift 窗口、Mac App 双向同步或真实设备可用。
 
+## 可选角色社交服务
+
+新增的独立社交服务按群共享摘要到 Mac 桌宠。先运行合成演示，再配置模型、群策略和 `.local/data/social-connection.json`，重启桌宠加载连接。完整步骤与架构见[角色社交与桌宠记忆](SOCIAL_MEMORY.md)。真实群聊仍需渠道适配器；服务与桌宠各自启动，重启后沿用原数据目录。
+
 ## 测试与公开分发
 
 `npm test`、`npm run test:release`、`npm run test:setup` 检查不同范围的共享逻辑；部分文件权限、符号链接和原生运行时测试必须在 Mac 上执行。合成凭据、音频和 mock 服务结果不能替代真实账号与设备验收。
@@ -111,3 +115,5 @@ Open `npm run configure-local`, keep the terminal running, and use its private l
 Public installation state is under `.local/model-evaluation/` and `.local/data/`; restricted credentials remain outside the repository. Preserve them when upgrading. Runtime fingerprints must be registered for the matching build; old private handoff paths are not automatically migrated.
 
 Mac does **not** include Windows' local ASR, TTS or Ollama dialogue integrations. Speech, dialogue and background providers retain their cloud configuration. Optional keyword wake detection is separate. Shared TS/JS checks on Windows do not validate Swift, macOS permissions, hardware, real service calls or native-app synchronization. See the [Mac evidence and limitations](MACOS-20261010.md) and [platform comparison](PLATFORMS.md#english).
+
+Optional social-role service: follow [Social roles and companion memory](SOCIAL_MEMORY.en.md) for the synthetic demo, model setup, per-group sharing and desktop connection. The connection is under `.local/data/`; real group adapters and automatic startup remain pending.

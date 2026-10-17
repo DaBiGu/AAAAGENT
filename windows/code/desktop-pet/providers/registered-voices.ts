@@ -30,6 +30,7 @@ export class RegisteredVoiceError extends Error {
 const modelEndpoints: Readonly<Record<string, string>> = Object.freeze({
   'qwen-audio-3.0-tts-plus': 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
   'qwen-audio-3.0-tts-flash': 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
+  'qwen-audio-3.1-tts-flash': 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
   'MiniMax/speech-2.8-hd': 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
   'MiniMax/speech-2.8-turbo': 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
 });

@@ -4,6 +4,7 @@ import { countRequestInput,inputBudgetInfo,DEFAULT_CURRENT_EMOTION_RESERVE_TOKEN
 import { normalizeApiKey, MAX_API_KEY_FILE_BYTES } from '../core/api-key.js';
 import { EmotionTurns } from '../core/emotion-state.js';
 import { ActivityObserver } from '../observer/index.js';
+import { openMnemonMemory } from '../companion/mnemon-memory.js';
 import { planCare } from '../companion/proactive-care.js';
 import { readCompanionChatHistory } from './companion-chat-history.js';
 import { StrictManagementForget, withStrictManagementForget } from './management-forget.js';
@@ -251,9 +252,13 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     activity = new ActivityObserver({ onChange: reading => {
       process.stdout.write(JSON.stringify({ channel: 'activity', reading: { kind: reading.kind, label: reading.label, disturb: reading.disturb, idleMs: reading.idleMs } }) + '\n');
     } });
+    const mnemon = await openMnemonMemory().catch(error => ({ memory: undefined, status: {
+      root: '', documents: 0, memories: 0, updatedAt: null, error: String(error),
+    } }));
+    void diagnostic({ type: 'mnemon_shared_memory', ...mnemon.status });
     const {dialogue,foregroundBudget}=selectTrialDialogue(configuration,()=>endpoint('dialogue'),transport,
       ()=>presentation.allowedIntent(),settings.effective.context.targetInputTokens,settings.effective.providers.dialogue.temperature,
-      fetch, () => activity!.describe());
+      fetch, () => activity!.describe(), mnemon.memory ? (query: string) => mnemon.memory!.recallPromptSync(query) : undefined);
     const strictProvider=new StrictTrialMemoryProvider(store, endpoint('memory_turn'), transport, configuration.phaseId, evidence, configuration.models.memory_turn.thinking);
     const memory = new ObservedTrialMemory(store, {
       context: { inputTokenBudget: foregroundBudget.effectiveInputTokens,budgetInfo:foregroundBudget,currentEmotionReserveTokens:settings.effective.context.currentEmotionReserveTokens??DEFAULT_CURRENT_EMOTION_RESERVE_TOKENS, maxRecentMessages: settings.effective.context.maxRecentMessages, maxMemories: settings.effective.context.maxMemories,

@@ -106,8 +106,12 @@ export class DialoguePipeline {
         // Queue owns lifetime and diagnostics; no completed outcome is invented for the foreground.
         void background!.enqueueTurn(scope, userMessage.id, text).catch(() => {});
       }
-      const memoryOutcome = independent ? undefined : await this.ports.memoryLifecycle?.prepareTurn(scope, userMessage.id, text, signal);
+      let memoryOutcome = independent ? undefined : await this.ports.memoryLifecycle?.prepareTurn(scope, userMessage.id, text, signal);
       this.current(scope, signal);
+      // A large topical memory source group can exceed the reviewed maintenance
+      // budget. That is a maintenance limitation, not a failed reply: continue
+      // the conversation without a memory operation for this turn.
+      if (memoryOutcome?.status === 'rejected' && memoryOutcome.rejectionCode === 'turn_source_group_exceeds_budget') memoryOutcome = undefined;
       if (memoryOutcome) {
         this.belongs(scope, memoryOutcome);
         if (memoryOutcome.status === 'rejected') throw new Error('这次记忆变更没有完成，请稍后再试。');

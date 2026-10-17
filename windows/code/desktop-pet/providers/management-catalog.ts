@@ -97,24 +97,28 @@ export function managementAdapterCatalog(base: TrialConfiguration, registeredVoi
     characterMicros: 100, reservationMicros: 400_000, voice: 'longanfengyue' };
   const qwenAudioPlus: Selection = { ...qwenAudio, model: 'qwen-audio-3.0-tts-plus',
     characterMicros: 140, voice: 'longanlingxin' };
+  const qwenAudio31: Selection = { ...qwenAudio, model: 'qwen-audio-3.1-tts-flash',
+    characterMicros: 100, voice: 'longanhuan_v3.1' };
   catalog.push({ id: qwenAudio.adapterId, label: 'QwenAudio 情绪语音', slots: ['tts'], provider: 'dashscope',
-    endpoints: [qwenAudio.endpoint], modelHint: qwenAudio.model, models: [qwenAudio.model, qwenAudioPlus.model],
+    endpoints: [qwenAudio.endpoint], modelHint: qwenAudio.model, models: [qwenAudio.model, qwenAudioPlus.model, qwenAudio31.model],
     choices: [{ label: 'QwenAudio 3.0 Flash（系统音色）', configuration: qwenAudio,
       voices: [{ id: 'longanfengyue', label: '龙安风悦' }, { id: 'longanlingxi', label: '龙安灵希' }] },
     { label: 'QwenAudio 3.0 Plus（旗舰系统音色）', configuration: qwenAudioPlus,
-      voices: [{ id: 'longanlingxin', label: '龙安灵心' }] }],
+      voices: [{ id: 'longanlingxin', label: '龙安灵心' }] },
+    { label: 'QwenAudio 3.1 Flash（系统音色/声音设计）', configuration: qwenAudio31,
+      voices: [{ id: 'longanhuan_v3.1', label: '龙安欢 3.1' }] }],
     capabilities: { instructions: true, cloning: false, voice: true, language: false, temperature: false },
     status: 'available',
-    note: '官方资料核对：2026-09-11。系统音色支持中文和英文；Flash与Plus音色不能混用。此接入不提供语言参数、流式播放或声音复刻。北京每万计费字符Flash 1元、Plus 1.4元，每段保守预留0.40元，按实际计费字符结算。Plus样音已在本地修复文件头并通过播放格式检查；未做新旧音色试听比较，旗舰为官方定位。' });
+    note: '官方资料核对：2026-10-17。3.1 Flash 支持系统音色与已登记的声音设计/复刻音色；3.0 与 3.1 音色不能混用。此接入不提供语言参数和流式播放。北京每万计费字符 3.0 Flash 1元、3.0 Plus 1.4元、3.1 Flash 1元，每段保守预留0.40元，按实际计费字符结算。声音设计需在百炼控制台或 API 创建后登记为本地音色。' });
   const audio = catalog[catalog.length - 1]!;
   for (const choice of audio.choices!) {
     const compatible = registeredVoices.filter(voice => voice.provider === choice.configuration.provider
       && voice.endpoint === choice.configuration.endpoint && voice.targetModel === choice.configuration.model);
     choice.voices = [...(choice.voices ?? []), ...compatible.map(voice => ({ id: voice.voiceId, label: voice.label }))];
   }
-  if (registeredVoices.some(voice => voice.endpoint === qwenAudio.endpoint && [qwenAudio.model, qwenAudioPlus.model].includes(voice.targetModel))) {
+  if (registeredVoices.some(voice => voice.endpoint === qwenAudio.endpoint && [qwenAudio.model, qwenAudioPlus.model, qwenAudio31.model].includes(voice.targetModel))) {
     audio.capabilities.cloning = true;
-    audio.note = '已登记的克隆音色与具体模型、服务地址和凭据绑定；保存选择时会核对，不支持任意输入音色ID。系统与克隆音色均可选择。北京每万计费字符Flash 1元、Plus 1.4元，每段预留0.40元，沿原账本按实际用量结算。完整WAV后播放；克隆相似度和听感需实际试听判断。';
+    audio.note = '已登记的声音设计与复刻音色与具体模型、服务地址和凭据绑定；保存选择时会核对，不支持任意输入音色ID。系统与自定义音色均可选择。北京每万计费字符 3.0 Flash 1元、3.0 Plus 1.4元、3.1 Flash 1元，每段预留0.40元，沿原账本按实际用量结算。完整WAV后播放；相似度和听感需实际试听判断。';
   }
   const minimaxChoices: Choice[] = [];
   // Local registrations are exact reviewed pairings, not a claim that the supplier forbids cross-model reuse.

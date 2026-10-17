@@ -153,7 +153,7 @@ test('supported TTS voice changes the existing request and returns WAV without p
   const selected = { ...chosen('tts', 'qwen3-tts-instruct-flash'), voice: 'Serena' };
   assert.ok(descriptor.choices!.every(choice => choice.voices?.some(voice => voice.id === selected.voice)));
   assert.equal(descriptor.capabilities.cloning, false);
-  assert.match(descriptor.note, /同系列/);
+  assert.match(descriptor.note, /同系列|当前可用/);
   const store = new MemoryMediaStore(), wav = pcm16Wav(new Float32Array(240), 24000);
   const provider = new QwenTtsProvider({ ...endpoint(selected), voice: selected.voice, language: selected.language! }, store,
     new ProviderTransport(async (url, init) => {

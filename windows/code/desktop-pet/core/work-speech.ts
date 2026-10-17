@@ -7,6 +7,8 @@ export interface WorkStatusNotice {
   taskId?: string;
   kind: 'ready' | 'confirmed' | 'transferred' | 'completed' | 'failed' | 'approval' | 'unknown' | 'clarification' | 'arrangement' | 'cancelled' | 'local_control';
   spokenText?: string;
+  /** 主动关心等短句可选的表现手势，必须是模型已登记的手势之一。 */
+  spokenGesture?: 'heart' | 'comfort' | 'hold_star' | 'lean';
   workBinding?: WorkInputBinding;
   executor: 'codex' | 'harness';
 }
@@ -81,7 +83,7 @@ export class WorkSpeech {
         current();
         const text = sentence(queued.notice);
         this.options.emit({ noticeId: job.noticeId, scope, inputEpoch: job.epoch, state: 'start', text, ...(queued.notice.workBinding?{workBinding:queued.notice.workBinding}:{}) });
-        const audio = await this.options.tts.synthesize({ scope, text, expression: { emotion: 'neutral', intensity: 0, gesture: null, delivery: '' } }, job.controller.signal);
+        const audio = await this.options.tts.synthesize({ scope, text, expression: { emotion: 'neutral', intensity: 0, gesture: queued.notice.spokenGesture ?? null, delivery: '' } }, job.controller.signal);
         current(); if (!sameScope(scope, audio.scope)) throw new Error('Work speech scope mismatch');
         let started = false, ended = false;
         await this.options.playback.play(audio, event => {

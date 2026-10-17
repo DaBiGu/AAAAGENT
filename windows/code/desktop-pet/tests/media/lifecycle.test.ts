@@ -4,7 +4,7 @@ import type { CapturedInput, PlaybackEvent, TurnScope, TtsResult } from '../../c
 import { TurnCapture, type CaptureSession, type CapturedBytes } from '../../media/capture.js';
 import { TurnPlayback, type PlaybackSample, type PlaybackSession } from '../../media/playback.js';
 import { MemoryMediaStore } from '../../media/store.js';
-import { inspectPcmWav, joinPcmWav, pcm16Wav } from '../../media/wav.js';
+import { inspectPcmWav, joinPcmWav, normalizeStreamingPcmWav, pcm16Wav } from '../../media/wav.js';
 import { TurnTiming } from '../../media/timing.js';
 
 const scope: TurnScope = { characterId: 'friend', sessionId: 's', turnId: 't', generation: 1 };
@@ -29,6 +29,13 @@ test('WAV segments retain every sample and reject incompatible or corrupt audio'
   assert.throws(() => joinPcmWav([wav(), pcm16Wav(new Float32Array([.1]), 48000)]), /inconsistent/);
   assert.throws(() => inspectPcmWav(wav().subarray(0, 45)), /Truncated/);
   assert.throws(() => pcm16Wav(new Float32Array([NaN]), 24000), /Non-finite/);
+  const streamed = wav(), view = new DataView(streamed.buffer, streamed.byteOffset, streamed.byteLength);
+  view.setUint32(4, 0x7fffffbf, true); view.setUint32(40, 0x7fffff9b, true);
+  assert.throws(() => inspectPcmWav(streamed), /Truncated/);
+  const repaired = normalizeStreamingPcmWav(streamed);
+  assert.notEqual(repaired, streamed); assert.equal(view.getUint32(4, true), 0x7fffffbf);
+  assert.equal(inspectPcmWav(repaired).data.length, 8);
+  const truncated = wav().subarray(0, 45); assert.equal(normalizeStreamingPcmWav(truncated), truncated);
 });
 test('construction and text-only work never open capture', async () => {
   let calls = 0; const store = new MemoryMediaStore();

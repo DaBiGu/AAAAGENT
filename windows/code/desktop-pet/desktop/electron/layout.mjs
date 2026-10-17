@@ -1,5 +1,5 @@
 const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
-export function fitDisplay(width, open, screen, anchor, mode = 'full', collapsed = false) {
+export function fitDisplay(width, open, screen, anchor, mode = 'full') {
   const sw = Math.max(1, screen.width), sh = Math.max(1, screen.height), aspect = 340 / 360;
   const mw = Math.max(1, Math.min(width, sw - 20, (sh - 36) / aspect)), mh = mw * aspect;
   const pet = { x: clamp(anchor.x - (mw + 20) / 2, screen.x, screen.x + sw - mw - 20),
@@ -18,9 +18,7 @@ export function fitDisplay(width, open, screen, anchor, mode = 'full', collapsed
   const x = Math.floor(open ? Math.min(pet.x, drawer.x) : pet.x), y = Math.floor(open ? Math.min(pet.y, drawer.y) : pet.y);
   const bounds = { x, y, width: Math.ceil((open ? Math.max(pet.x + pet.width, drawer.x + dw) : pet.x + pet.width) - x),
     height: Math.ceil((open ? Math.max(pet.y + pet.height, drawer.y + dh) : pet.y + pet.height) - y) };
-  const config = { mode, preferredWidth: width,
+  return { bounds, anchor: { x: pet.x + pet.width / 2, y: pet.y }, config: { mode, preferredWidth: width,
     modelWidth: mw, modelHeight: mh, drawerHeight: open ? dh : 0, petLeft: pet.x - x, petTop: pet.y - y, petWidth: pet.width,
-    drawerLeft: drawer.x - x, drawerTop: drawer.y - y, drawerWidth: dw, placement, collapsed, ballLeft:0, ballTop:0, ballSize:54 };
-  if (collapsed) return {bounds:{x:Math.round(clamp(anchor.x-27,screen.x,screen.x+sw-54)),y:Math.round(clamp(anchor.y,screen.y,screen.y+sh-54)),width:54,height:54},anchor,config};
-  return { bounds, anchor: { x: pet.x + pet.width / 2, y: pet.y }, config };
+    drawerLeft: drawer.x - x, drawerTop: drawer.y - y, drawerWidth: dw, placement } };
 }

@@ -1,6 +1,6 @@
 import type { MediaStorePort, TtsProvider, TtsRequest, TtsResult } from '../contracts/index.js';
 import { checkAbort } from '../media/scope.js';
-import { inspectPcmWav, joinPcmWav } from '../media/wav.js';
+import { inspectPcmWav, joinPcmWav, normalizeStreamingPcmWav } from '../media/wav.js';
 import { EndpointConfig, object, ProviderTransport, string } from './transport.js';
 
 /** API limit is per request; concatenating these parts recovers the exact original string. */
@@ -34,7 +34,7 @@ export function audioDownloadUrl(uri: string): string {
 export interface QwenTtsConfig extends EndpointConfig { voice: string; language: string }
 export class QwenTtsProvider implements TtsProvider {
   constructor(private readonly config: QwenTtsConfig, private readonly store: MediaStorePort, private readonly transport = new ProviderTransport()) {
-    if (!/^qwen3-tts-instruct-flash(-\d{4}-\d{2}-\d{2})?$/.test(config.model) || !config.voice || !config.language) throw new Error('Explicit instruction-capable TTS model, language and test voice required');
+    if (!/^qwen3-tts-(instruct-)?flash(-\d{4}-\d{2}-\d{2})?$/.test(config.model) || !config.voice || !config.language) throw new Error('Explicit instruction-capable TTS model, language and test voice required');
   }
   async synthesize(input: TtsRequest, signal: AbortSignal): Promise<TtsResult> {
     checkAbort(signal);
@@ -46,7 +46,9 @@ export class QwenTtsProvider implements TtsProvider {
         const raw = await this.transport.request(this.config, input.scope, 'tts', { input: { text, voice: input.voiceId ?? this.config.voice, language_type: this.config.language, instructions: input.expression.delivery || `用${input.expression.emotion}的情绪自然表达。`, optimize_instructions: false } }, signal, billedCharacters(text));
         checkAbort(signal);
         const audio = object(object(raw.output).audio);
-        const bytes = await this.transport.downloadAudio(audioDownloadUrl(string(audio.url)), signal);
+        const downloaded = await this.transport.downloadAudio(audioDownloadUrl(string(audio.url)), signal);
+        const bytes = normalizeStreamingPcmWav(downloaded);
+        if (bytes !== downloaded) downloaded.fill(0);
         checkAbort(signal); inspectPcmWav(bytes); clips.push(bytes);
       }
       const bytes = joinPcmWav(clips); checkAbort(signal);

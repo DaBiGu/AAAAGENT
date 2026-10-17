@@ -1,33 +1,17 @@
-import { LocalAsrProvider, LocalTtsProvider } from '../providers/local-speech.js';
 import { selectTrialDialogue } from './dialogue-selection.js';
 import { isOutside, isPrivateFileSync } from '../core/platform-files.js';
 import { countRequestInput,inputBudgetInfo,DEFAULT_CURRENT_EMOTION_RESERVE_TOKENS } from '../providers/input-count.js';
 import { normalizeApiKey, MAX_API_KEY_FILE_BYTES } from '../core/api-key.js';
 import { EmotionTurns } from '../core/emotion-state.js';
-import { homedir } from 'node:os';
-import { SqliteMemoryImportManagement } from '../memory/import-management.js';
-import { HistoricalMemoryTransport, historicalMemoryInputBytes, memoryImportConfiguration, observedImportEndpoint } from './memory-import.js';
-import { WakeManager } from './wake-manager.js';
-import { wechatTranscriber } from '../wechat/asr.js';
-import { wechatAudioFileSender } from '../wechat/output.js';
-import { WeChatService } from '../wechat/service.js';
-import { WeChatApi } from '../wechat/api.js';
-import { WeChatStore } from '../wechat/store.js';
-import { WeChatTextConversation } from '../wechat/conversation.js';
+import { ActivityObserver } from '../observer/index.js';
+import { planCare } from '../companion/proactive-care.js';
 import { readCompanionChatHistory } from './companion-chat-history.js';
-import { WorkPlanner } from '../providers/work-plan.js';
-import { DesktopWork } from '../harness/desktop-work.js';
-import { DesktopWorkbench, readDesktopCoordinatorProfile } from './desktop-workbench.js';
-import { WorkIntentClassifier } from '../providers/work-intent.js';
-import { QwenAsrProvider } from '../providers/qwen-asr.js';
-import { QwenVisualEmotionProvider, VISUAL_EMOTION_PROMPT } from '../providers/qwen-visual-emotion.js';
-import { SplitPerceptionProvider } from '../providers/split-perception.js';
 import { StrictManagementForget, withStrictManagementForget } from './management-forget.js';
 import { assertCompanionDataConfiguration } from './companion-data.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, statSync, realpathSync } from 'node:fs';
-import { appendFile, mkdir, open, unlink } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { appendFile, mkdir, open, readFile, unlink, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import {pendingMemoryManagement} from '../management/pending-memory.js';
 import { fileURLToPath } from 'node:url';
@@ -44,12 +28,10 @@ import { effectiveTrialConfiguration } from '../management/settings.js';
 import { ManagementRuntime } from '../management/runtime.js';
 import { PresentationSettingsStore, readPresentationCatalog } from '../management/presentation.js';
 import { startRuntimeManagement } from '../management/bootstrap.js';
-import { loadProjectTerminalRuntimeRegistration } from '../management/project-terminal-configuration.js';
 import type { MemoryRecord } from '../memory/ledger.js';
 import { abortable } from '../media/scope.js';
 import { MemoryMediaStore } from '../media/store.js';
 import { JsonSummaryProvider } from '../providers/qwen-memory-lifecycle.js';
-import { QwenPerceptionProvider } from '../providers/qwen-perception.js';
 import { QwenTtsProvider, billedCharacters } from '../providers/qwen-tts.js';
 import { QwenAudioTtsProvider, isQwenAudioTtsModel } from '../providers/qwen-audio-tts.js';
 import { MiniMaxTtsProvider, MINIMAX_TTS_MODEL, MINIMAX_TTS_ENDPOINT } from '../providers/minimax-tts.js';
@@ -60,11 +42,12 @@ import { TrialAuthorizer } from './trial-authorizer.js';
 import { readActiveTrialConfiguration, type TrialConfiguration, type TrialOperation } from './trial-config.js';
 import { verifyTrialRuntime } from './trial-launcher.js';
 import { summaryInputUpperBound } from './input-budgets.js';
-import { inspectPcmWav } from '../media/wav.js';
 import { prototypeSnapshot } from './memory-planning-prototype.js';
 import { runMemorySemanticAttempt, type SemanticAttemptEvent } from './memory-semantic-adapter.js';
 import { buildMemorySemanticFormat } from './memory-semantic-format.js';
 import { TrialAdmission } from './trial-admission.js';
+
+interface CareState { lastCareAt?: string; countDate?: string; count?: number; lastInteractionAt?: string }
 
 /** Keep production trial calls within the reviewed text bounds without truncating user content or replies. */
 export class TrialTransport extends ProviderTransport {
@@ -74,27 +57,9 @@ export class TrialTransport extends ProviderTransport {
     signal: AbortSignal, textCharacters?: number, audioSeconds?: number): Promise<JsonRecord> {
     const model = this.configuration.models[operation as TrialOperation];
     if (!model || operation === 'memory_maintenance') throw new Error('Unregistered trial operation');
-    if (operation !== 'dialogue' && operation !== 'tts' && operation !== 'perception' && operation !== 'asr') {
+    if (operation !== 'dialogue' && operation !== 'tts') {
       const upper = Buffer.byteLength(JSON.stringify(body.messages), 'utf8') + 2048;
       if (upper > model.inputTokenLimit) throw new Error('Trial request exceeds its reviewed input bound');
-    }
-    if (operation === 'perception' && this.configuration.models.asr) {
-      const messages = body.messages as {role?:string;content?:Record<string,unknown>[]}[] | undefined;
-      const content=messages?.[0]?.content;
-      if(messages?.length!==1 || messages[0]?.role!=='user' || !Array.isArray(content) || content.length<2 || content.length>4
-        || JSON.stringify(content.at(-1))!==JSON.stringify({type:'text',text:VISUAL_EMOTION_PROMPT})
-        || content.slice(0,-1).some(part=>part.type!=='image_url' || Object.keys(part).some(k=>!['type','image_url'].includes(k))
-          || !/^data:image\/(jpeg|png);base64,/.test(String((part.image_url as {url?:string})?.url)))
-        || JSON.stringify(body.modalities)!=='["text"]' || body.stream!==true
-        || Object.keys(body).some(k=>!['messages','stream','stream_options','modalities'].includes(k)))
-        throw new Error('Visual request must contain only current images and the fixed visual prompt');
-    }
-    if (operation === 'asr') {
-      const messages=body.messages as {role?:string;content?:{type?:string;input_audio?:{data?:string}}[]}[]|undefined;
-      const content=messages?.[0]?.content,data=content?.[0]?.input_audio?.data;
-      if (messages?.length!==1 || messages[0]?.role!=='user' || content?.length!==1 || content[0]?.type!=='input_audio' || typeof data!=='string' || !data.startsWith('data:audio/wav;base64,')) throw new Error('ASR audio request is invalid');
-      const bytes=Buffer.from(data.slice('data:audio/wav;base64,'.length),'base64');
-      try { const actualSeconds=inspectPcmWav(bytes).durationMs/1000; if(typeof audioSeconds!=='number'||!Number.isFinite(audioSeconds)||Math.abs(actualSeconds-audioSeconds)>0.000001)throw new Error('ASR audio duration mismatch'); } finally {bytes.fill(0);}
     }
     if (operation === 'tts') {
       const input = body.input as Record<string, unknown> | undefined;
@@ -229,13 +194,12 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
   const lockPath = resolve(evidenceRoot, '../backend.lock'), lock = await open(lockPath, 'wx', 0o600);
   await lock.writeFile(JSON.stringify({ pid: process.pid, phaseId: configuration.phaseId, sourceRevision: configuration.sourceRevision, startedAt: new Date().toISOString() }) + '\n');
   let store: SqliteMemoryStore | undefined, session: BackendSession | undefined;
-  let wechat: WeChatService | undefined;
-  let wake: WakeManager | undefined;
   let managementForget: StrictManagementForget | undefined;
-  let memoryImport: SqliteMemoryImportManagement | undefined;
-  let desktopWork: import('../contracts/desktop-work.js').DesktopWorkPort | undefined;
-  let desktopWorkbench: DesktopWorkbench | undefined;
   let management: Awaited<ReturnType<typeof startRuntimeManagement>> | undefined;
+  let activity: ActivityObserver | undefined;
+  let careState: CareState | undefined;
+  let persistCare: (() => Promise<void>) | undefined;
+  let careTimer: NodeJS.Timeout | undefined;
   const release = async () => { await lock.close(); await unlink(lockPath); };
   try {
     const authorizer = new TrialAuthorizer(configuration, configFile, activationFile, registeredConfiguration);
@@ -284,8 +248,12 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     }
     const presentation = await PresentationSettingsStore.open(resolve(configuration.projectRoot, '.local/data/presentation-settings.json'),
       await readPresentationCatalog(configuration.projectRoot), policy => process.stdout.write(JSON.stringify({ channel: 'presentation_policy', policy }) + '\n'));
+    activity = new ActivityObserver({ onChange: reading => {
+      process.stdout.write(JSON.stringify({ channel: 'activity', reading: { kind: reading.kind, label: reading.label, disturb: reading.disturb, idleMs: reading.idleMs } }) + '\n');
+    } });
     const {dialogue,foregroundBudget}=selectTrialDialogue(configuration,()=>endpoint('dialogue'),transport,
-      ()=>presentation.allowedIntent(),settings.effective.context.targetInputTokens,settings.effective.providers.dialogue.temperature);
+      ()=>presentation.allowedIntent(),settings.effective.context.targetInputTokens,settings.effective.providers.dialogue.temperature,
+      fetch, () => activity!.describe());
     const strictProvider=new StrictTrialMemoryProvider(store, endpoint('memory_turn'), transport, configuration.phaseId, evidence, configuration.models.memory_turn.thinking);
     const memory = new ObservedTrialMemory(store, {
       context: { inputTokenBudget: foregroundBudget.effectiveInputTokens,budgetInfo:foregroundBudget,currentEmotionReserveTokens:settings.effective.context.currentEmotionReserveTokens??DEFAULT_CURRENT_EMOTION_RESERVE_TOKENS, maxRecentMessages: settings.effective.context.maxRecentMessages, maxMemories: settings.effective.context.maxMemories,
@@ -298,11 +266,7 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     });
     if(configuration.purpose==='user-trial' && typeof (memory as import('../contracts/memory-lifecycle.js').BackgroundMemoryPort).beginPendingMutation!=='function')throw Error('Background privacy capability is required');
     const mediaStore = new MemoryMediaStore();
-    const makeAsr = (media: MediaStorePort) => configuration.localSpeech?.asr
-      ? new LocalAsrProvider(configuration.localSpeech, media) : new QwenAsrProvider(endpoint('asr'), media, transport);
-    const makeTts = (media: MediaStorePort) => configuration.localSpeech?.tts
-      ? new LocalTtsProvider(configuration.localSpeech, media)
-      : createTrialTtsProvider(settings.effective.providers.tts, endpoint('tts'), media, transport, voices);
+    const makeTts = (media: MediaStorePort) => createTrialTtsProvider(settings.effective.providers.tts, endpoint('tts'), media, transport, voices);
     const admission = new TrialAdmission(endpoint('admission'), transport,
       (scope, text, signal) => configuration.purpose==='user-trial' ? memory.foregroundContext(scope,`${scope.turnId}:user`,text,null,signal) : memory.context(scope, text, null, signal), async value => {
         if (value.rejected && configuration.purpose === 'smoke-text') await authorizer.stop('admission_rejected');
@@ -314,15 +278,11 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     const sessionPorts: BackendPorts = { memory, backgroundMemory: memory, mediaStore,
       ...(configuration.outputMode ? { outputMode: configuration.outputMode } : {}),
       readCompanionHistory: characterId => readCompanionChatHistory(configuration.database, characterId),
-      createEmotion:()=>new EmotionTurns(store!.emotion,store!),
-      consumeWakeHit: hit => wake?.consumeHit(hit),
+      createEmotion:()=>new EmotionTurns(store!.emotion,store!,undefined,() => activity!.describe()),
       companionProfile: store,
       ...(configuration.purpose==='user-trial' ? {classifyMemoryRequest:admission.foregroundRequest.bind(admission)} : {isMemoryIndependent:admission.isIndependent.bind(admission)}),
       dialogue,
-      perception: configuration.localSpeech?.asr || configuration.models.asr
-        ? new SplitPerceptionProvider(makeAsr(mediaStore),
-          new QwenVisualEmotionProvider(endpoint('perception'), mediaStore, transport), { visualTimeoutMs: 1500 })
-        : new QwenPerceptionProvider({ ...endpoint('perception'), cueLifetimeMs: 5 * 60_000 }, mediaStore, transport),
+      perception: { async perceive() { throw new Error('这个版本只做文字对话，不读取麦克风或摄像头。'); } },
       tts: makeTts(mediaStore),
     };
     session = new BackendSession(sessionPorts, message => {
@@ -337,103 +297,47 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
     process.stdout.write(JSON.stringify({ channel: 'presentation_policy', policy: presentation.snapshot() }) + '\n');
     runtime.observeMemoryQueue(() => session!.pendingMemoryJobs());
     if (configuration.purpose === 'user-trial') {
-      try {
-        const channelStore=new WeChatStore(resolve(configuration.projectRoot,'.local/data/wechat/channel.sqlite'));
-        const voiceMedia=new MemoryMediaStore();
-        const replyMedia=new MemoryMediaStore(),channelApi=new WeChatApi();
-        const replyTts=makeTts(replyMedia);
-        wechat=new WeChatService(channelStore,channelApi,async(key,send)=>{
-          if(!management)throw Error('Management not ready');
-          const workChannel=management.createWorkChannel(resolve(configuration.projectRoot,'.local/data/wechat/work',key));
-          const conversation=new WeChatTextConversation({key,store:channelStore,send,ports:sessionPorts,...workChannel,
-            ...(management.workbench?{workbenchRead:management.workbench}:{}),
-            classifier:new WorkIntentClassifier(endpoint('admission'),transport),planner:new WorkPlanner(endpoint('admission'),transport)});
-          try{return await conversation.start();}catch(error){await conversation.close();throw error;}
-        },{transcribe:wechatTranscriber(voiceMedia,makeAsr(voiceMedia)),
-          sendVoice:wechatAudioFileSender(replyMedia,replyTts,channelApi)});
-      } catch { process.stderr.write('WeChat channel storage unavailable; companion data unchanged.\n'); }
-      const wakeModels=resolve(configuration.projectRoot,'.local/data/wake-models');
-      let wakeAvailable=false;
-      try { const {verifyWakeModels}=await import('../media/wake/models.js');await verifyWakeModels(wakeModels);wakeAvailable=true; } catch { /* Off until a verified model package is installed. */ }
-      try { wake=await WakeManager.open({instanceId:runtime.instanceId,file:resolve(configuration.projectRoot,'.local/data/wake-settings.json'),available:wakeAvailable,
-        createDetector:async settings=>{const {openWakeDetector}=await import('../media/wake/detector.js');return openWakeDetector({modelDirectory:wakeModels,settings});},
-        send:message=>process.stdout.write(JSON.stringify(message)+'\n')});
-      } catch { process.stderr.write('Local wake settings unavailable; existing settings preserved.\n'); }
       managementForget=new StrictManagementForget(store,store.lifecycle,{inputTokenBudget:configuration.models.memory_turn.inputTokenLimit,
         countTokens:input=>buildMemorySemanticFormat(input,true).inputUpperBound+1024},
         (input,signal,action)=>strictProvider.planManagement(input,signal,{id:action.id,version:action.expectedVersion}));
-      const importConfiguration = memoryImportConfiguration(configuration);
-      try { memoryImport = new SqliteMemoryImportManagement({
-        filename: resolve(configuration.projectRoot,'.local/data/memory-import.sqlite'),
-        codexHome: resolve(homedir(),'.codex'), instanceId: runtime.instanceId, store,
-        configuration: importConfiguration,
-        countTokens: historicalMemoryInputBytes,
-        processor: { async plan(input,signal,settle) {
-          const importEndpoint = observedImportEndpoint(endpoint('memory_turn'),configuration.models.memory_turn,settle);
-          const provider = new StrictTrialMemoryProvider(store!,importEndpoint,
-            new HistoricalMemoryTransport(transport,importConfiguration),configuration.phaseId,
-            async () => {}, configuration.models.memory_turn.thinking);
-          return provider.plan(input,signal);
-        } },
-      });
-      } catch { process.stderr.write('Historical memory import unavailable; companion chat remains available.\n'); }
       management = await startRuntimeManagement(registeredConfiguration, configFile, settings, runtime,
         withStrictManagementForget(new SqliteManagementMemoryPort(store,memory),managementForget),presentation,
         pendingMemoryManagement(runtime.instanceId,memory,(scope,id)=>{const source=store!.inspect(scope,id);return source?.state==='active'&&source.message?.role==='user'?{text:source.text,createdAt:source.message.createdAt}:undefined;},
-          (scope,id,text)=>session!.retryPendingMemory(scope,id,text),()=>session!.pendingMemoryJobs().some(x=>x.queued+x.running>0)),wechat,wake,memoryImport,store.emotion,
-        await loadProjectTerminalRuntimeRegistration(registeredConfiguration), configuration.localSpeech?.asr || configuration.models.asr ? {
-          model: configuration.localSpeech?.asr?.model ?? configuration.models.asr!.model,
-          async transcribe(inputId, wav, signal) {
-            const engineeringMedia = new MemoryMediaStore();
-            const scope: TurnScope = { characterId: COMPANION_ID, sessionId: `engineering-web-${inputId}`, turnId: inputId, generation: 0 };
-            try {
-              const audio = await engineeringMedia.put(scope, wav, 'audio/wav');
-              return (await makeAsr(engineeringMedia).transcribe({ scope, audio }, signal)).transcript;
-            } finally { await engineeringMedia.releaseScope(scope); }
-          },
-        } : undefined);
+          (scope,id,text)=>session!.retryPendingMemory(scope,id,text),()=>session!.pendingMemoryJobs().some(x=>x.queued+x.running>0)),undefined,undefined,undefined,store.emotion);
+      const careStateFile = resolve(configuration.projectRoot, '.local/data/care-state.json');
+      try { careState = JSON.parse(await readFile(careStateFile, 'utf8')) as CareState; } catch { careState = {}; }
+      persistCare = async () => { try { await writeFile(careStateFile, JSON.stringify(careState), { mode: 0o600 }); } catch { /* 关心状态写不进去不影响聊天 */ } };
+      const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      const checkCare = async () => {
+        if (!session || !activity) return;
+        const now = new Date(), state = careState ?? {};
+        const today = localDate(now), countToday = state.countDate === today ? state.count ?? 0 : 0;
+        let userEmotion: string | null = null;
+        try {
+          const background = await store!.emotion.background({ characterId: COMPANION_ID, sessionId: 'proactive-care', turnId: 'proactive-care', generation: 0 });
+          userEmotion = background?.user?.observation?.label ?? null;
+        } catch { /* 情绪背景读不到就只按活动判断 */ }
+        const plan = planCare({ activity: activity.current, now, lastInteractionAt: state.lastInteractionAt ?? null,
+          lastCareAt: state.lastCareAt ?? null, careCountToday: countToday, userEmotion });
+        if (!plan) return;
+        session!.notifyCare(plan.text, plan.gesture);
+        careState = { ...state, lastCareAt: now.toISOString(), countDate: today, count: countToday + 1 };
+        await persistCare!();
+        await diagnostic({ type: 'proactive_care', reason: plan.reason, kind: activity.current?.kind ?? null });
+      };
+      activity.start();
+      void checkCare();
+      careTimer = setInterval(() => { void checkCare(); }, 120_000);
+      careTimer.unref();
     }
-    if (configuration.purpose === 'user-trial') {
-      if (management?.workbench && management.projects) {
-        desktopWorkbench = new DesktopWorkbench(management.projects, management.workbench,
-          state => process.stdout.write(JSON.stringify({ channel: 'workbench_state', state }) + '\n'),
-          notice => session!.notifyWork(notice),
-          projectId => readDesktopCoordinatorProfile(configuration.projectRoot, projectId));
-        session.attachWorkbench(desktopWorkbench);
-        await desktopWorkbench.start();
-      }
-      const classifier = new WorkIntentClassifier(endpoint('admission'), transport);
-      if (management?.tasks && management.projects && management.receipts) {
-        const work = new DesktopWork({ receipts: management.receipts, projects: management.projects, forwarding: management.tasks,
-          classify: classifier.classify.bind(classifier), interpret: classifier.interpret.bind(classifier),
-          plan: (scope,text,catalog,signal)=>new WorkPlanner(endpoint('admission'),transport).plan(scope,text,catalog,signal),
-          ...(desktopWorkbench ? { workbenchSelection: desktopWorkbench.focusSnapshot.bind(desktopWorkbench),
-            workbenchRoute: desktopWorkbench.routeInput.bind(desktopWorkbench),
-            workbenchBeginInput: desktopWorkbench.beginInput.bind(desktopWorkbench),
-            workbenchContinuation: desktopWorkbench.continueInput.bind(desktopWorkbench) } : {}),
-          emit: state => process.stdout.write(JSON.stringify({ channel: 'work_state', state }) + '\n'), notify: notice => session!.notifyWork(notice) });
-        desktopWork = work; session.attachWork(work); await work.start();
-      } else {
-        // Failed independent storage must not stop unrelated companion chat or leak engineering input into it.
-        let sequence = 0;
-        const unavailable = () => process.stdout.write(JSON.stringify({ channel: 'work_state', state: { sequence: ++sequence,
-          focus: 'work', stage: 'failed', requests: [], detail: '工作记录暂不可用；这次任务没有保存或发送，陪伴聊天仍可继续。' } }) + '\n');
-        desktopWork = { onInput() {}, async route(scope, text, signal) {
-          const intent = await classifier.classify(scope, text, signal);
-          if (intent.kind === 'companion') return 'companion'; unavailable(); return 'handled';
-        }, async action() { unavailable(); }, async close() {} };
-        session.attachWork(desktopWork);
-      }
-    }
-    await wechat?.restore().catch(()=>{process.stderr.write('WeChat restore deferred; use connection page.\n');});
     const cleanupTimer = setInterval(() => { try { store!.cleanup(); } catch { process.stderr.write('Local memory cleanup did not complete\n'); } }, 60_000);
     cleanupTimer.unref();
     const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
     let stopping = false;
     const close = async () => {
-      if (stopping) return; stopping = true; clearInterval(cleanupTimer); lines.close(); process.stdin.pause();
+      if (stopping) return; stopping = true; clearInterval(cleanupTimer); careTimer && clearInterval(careTimer); activity?.stop(); lines.close(); process.stdin.pause();
       managementForget?.close();
-      try { await wake?.close(); await wechat?.close(); await desktopWork?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain(); await settings.drain(); await presentation.drain(); }
+      try { await management?.close(); await managementForget?.drain(); await settings.drain(); await presentation.drain(); }
       finally { try { await session!.close(); } finally { await release(); } }
     };
     let submitted = false;
@@ -447,15 +351,15 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
           }
         } catch { void authorizer.stop('unregistered_smoke_input').finally(close); return; }
       }
-      try { if(wake?.receive(JSON.parse(line)))return; } catch { /* Original protocol validator owns non-wake input. */ }
+      try { const parsed=JSON.parse(line); if(careState && parsed?.channel==='command' && (parsed.command?.type==='submit_text'||parsed.command?.type==='start_voice')) { careState.lastInteractionAt=new Date().toISOString(); void persistCare?.(); } } catch { /* 非 JSON 输入交给后端原始校验 */ }
       void session!.receiveLine(line);
     });
     lines.on('close', () => { void close(); });
     process.once('SIGTERM', () => { void close(); }); process.once('SIGINT', () => { void close(); });
   } catch (error) {
     managementForget?.close();
-    await wake?.close(); await wechat?.close(); await desktopWorkbench?.close(); await management?.close(); await managementForget?.drain();
-    await memoryImport?.close();
+    activity?.stop(); if(careTimer)clearInterval(careTimer);
+    await management?.close(); await managementForget?.drain();
     if (session) await session.close(); else store?.close();
     await release(); throw error;
   }

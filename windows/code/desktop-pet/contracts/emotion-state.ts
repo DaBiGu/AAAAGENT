@@ -95,6 +95,11 @@ export interface EmotionInferenceInput {
   readonly recent: readonly ConversationMessage[];
   readonly background: EmotionBackground;
   readonly perception: PerceptionResult | null;
+  /**
+   * 本机观察到的当前情境（用户正在做什么）。它只是**情境线索**，不是情绪证据：
+   * 可以用来更好地理解这句话的语境，但不能单独据此断定用户的情绪类别。
+   */
+  readonly activity?: string;
 }
 export interface EmotionInferenceProvider {
   infer(input: EmotionInferenceInput, signal: AbortSignal): Promise<EmotionAssessment>;

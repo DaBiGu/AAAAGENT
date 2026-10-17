@@ -15,6 +15,22 @@ export function pcm16Wav(samples: Float32Array, sampleRate: number): Uint8Array 
   });
   return out;
 }
+/** Completed HTTP WAV responses from DashScope streaming TTS writers can keep the
+ * in-band length sentinels 0x7fffffbf/0x7fffff9b. Repair only that exact canonical
+ * mono 24 kHz PCM header; arbitrary truncation remains an error in inspectPcmWav. */
+export function normalizeStreamingPcmWav(bytes: Uint8Array): Uint8Array {
+  if (bytes.length < 46) return bytes;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (offset: number, value: string) => [...value].every((char, i) => bytes[offset + i] === char.charCodeAt(0));
+  if (!tag(0, 'RIFF') || !tag(8, 'WAVE') || !tag(12, 'fmt ') || !tag(36, 'data')
+    || view.getUint32(4, true) !== 0x7fffffbf || view.getUint32(40, true) !== 0x7fffff9b
+    || view.getUint32(16, true) !== 16 || view.getUint16(20, true) !== 1 || view.getUint16(22, true) !== 1
+    || view.getUint32(24, true) !== 24000 || view.getUint32(28, true) !== 48000
+    || view.getUint16(32, true) !== 2 || view.getUint16(34, true) !== 16 || (bytes.length - 44) % 2) return bytes;
+  const normalized = new Uint8Array(bytes), output = new DataView(normalized.buffer, normalized.byteOffset, normalized.byteLength);
+  output.setUint32(4, bytes.length - 8, true); output.setUint32(40, bytes.length - 44, true);
+  return normalized;
+}
 export function inspectPcmWav(bytes: Uint8Array): { sampleRate: number; channels: number; bits: number; data: Uint8Array; durationMs: number } {
   if (bytes.length < 44 || ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WAVE') throw new Error('Expected WAV audio');
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

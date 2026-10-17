@@ -8,14 +8,14 @@ import type { EndpointConfig, ProviderTransport } from '../providers/transport.j
 export function selectTrialDialogue(configuration: Pick<TrialConfiguration, 'localDialogue' | 'models'>,
   cloudEndpoint: () => EndpointConfig, cloudTransport: ProviderTransport,
   visualPolicy: () => { presets: readonly { id: string; label: string }[] }, targetInputTokens: number | undefined,
-  temperature?: number, localFetch: typeof fetch = fetch) {
+  temperature?: number, localFetch: typeof fetch = fetch, activity?: () => string) {
   if (configuration.localDialogue) return {
     dialogue: new LocalDialogueProvider(configuration.localDialogue, visualPolicy, localFetch),
     foregroundBudget: localDialogueBudget(configuration.localDialogue, targetInputTokens),
   };
   return {
     dialogue: new JsonDialogueProvider(cloudEndpoint(), cloudTransport, visualPolicy, undefined,
-      { outputTokenLimit: configuration.models.dialogue.outputTokenLimit, ...(temperature === undefined ? {} : { temperature }) }),
+      { outputTokenLimit: configuration.models.dialogue.outputTokenLimit, ...(temperature === undefined ? {} : { temperature }), ...(activity ? { activity } : {}) }),
     foregroundBudget: inputBudgetInfo(configuration.models.dialogue, targetInputTokens),
   };
 }

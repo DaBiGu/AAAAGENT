@@ -66,19 +66,20 @@ export function managementAdapterCatalog(base: TrialConfiguration, registeredVoi
     const choices: Choice[] = [{ label: `${original.model}（已登记基线）`, configuration: original,
       ...(slot === 'tts' ? { voices: voices() } : {}) }];
     const reviewed = deepseek ? [] : slot === 'tts'
-      ? [speech('qwen3-tts-instruct-flash-2026-01-26'), speech('qwen3-tts-instruct-flash')]
+      ? [speech('qwen3-tts-flash'), speech('qwen3-tts-instruct-flash-2026-01-26'), speech('qwen3-tts-instruct-flash')]
       : slot === 'perception' ? [omni(false, !!base.models.asr), omni(true, !!base.models.asr)]
       : slot === 'memory_turn' || slot === 'asr' ? [] : [chat(id, false), chat(id, true)];
     for (const configuration of reviewed) {
       if (choices.some(choice => choice.configuration.model === configuration.model)) continue;
-      choices.push({ label: configuration.model === 'qwen3-tts-instruct-flash'
+      choices.push({ label: configuration.model === 'qwen3-tts-flash'
+        ? `${configuration.model}（当前可用）` : configuration.model === 'qwen3-tts-instruct-flash'
         ? `${configuration.model}（同系列滚动别名）` : configuration.model, configuration,
       ...(slot === 'tts' ? { voices: voices() } : {}) });
     }
     const specific = deepseek ? `DeepSeek 4.1 Flash，官网当前调用ID deepseek-flash；${slot === 'dialogue' ? '对话由本地规则按问题选择思考或非思考，保持JSON协议' : '非思考JSON协议'}。峰值未命中输入2元/百万、输出8元/百万保守估算，缓存与闲时折扣可能降低实际账单。${slot==='dialogue'?'前台默认输入目标200K，API输入容量1048576，总窗口1048576，输出预留393216，默认预留3.545728元':'后台独立输入32768、输出393216，单次预留3.211264元'}；沿原累计账，不自动回退千问文本。官方：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/` : slot === 'perception'
       ? '仅使用本轮摄像头画面判断情绪；语音由独立转写服务处理。沿用原累计总账保守预留。'
       : slot === 'tts'
-        ? '仅已接入的指令型系列及预置音色；滚动别名当前对应 2026-01-26，同系列不代表跨系列切换。不支持声音复刻。按实际提交字符预留费用，计入原累计总账。'
+        ? '当前可用型号为 qwen3-tts-flash（官方未再提供指令型指令微调版本，instructions 字段按兼容方式提交）；预置音色如 Cherry，不支持声音复刻。按实际提交字符预留费用，计入原累计总账。'
         : slot === 'memory_turn'
           ? '保留严格语义记忆与 high 配置。官网当前说明 Pro 在 2026-09-14 后继续提供服务。现费率使用峰值未命中上界。'
           : '已接入非思考 JSON 对话协议；北京输入不超过 128K 的价格档。配置输入上限 32768，保留模型完整输出上限，预留不代表实际扣费。';

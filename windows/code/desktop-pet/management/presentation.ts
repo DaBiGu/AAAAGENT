@@ -27,7 +27,7 @@ export function validatePresentationCatalog(value: unknown): PresentationCatalog
   return structuredClone(c);
 }
 export async function readPresentationCatalog(projectRoot: string): Promise<PresentationCatalog> {
-  const base = resolve(projectRoot, 'code/desktop-pet/desktop/assets/jellyfish');
+  const base = resolve(projectRoot, 'code/desktop-pet/desktop/assets/local-model');
   const manifest = await readFile(resolve(base, 'pet.model3.json'));
   const catalog = validatePresentationCatalog(JSON.parse(await readFile(resolve(base, 'presets.json'), 'utf8')));
   const refs = JSON.parse(manifest.toString('utf8')).FileReferences;

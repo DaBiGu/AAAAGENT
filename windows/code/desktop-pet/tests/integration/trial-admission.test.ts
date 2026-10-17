@@ -146,4 +146,6 @@ test('foreground request classification controls privacy only and preserves scop
  });
  const mismatch=new TrialAdmission(config,new ProviderTransport(async()=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({scope:{...scope,generation:999},request:'none',reason:'Wrong scope'})}}]})),async()=>context());
  assert.equal(await mismatch.foregroundRequest(scope,'合成请求',new AbortController().signal),'uncertain');
+  const omitted=new TrialAdmission(config,new ProviderTransport(async()=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({request:'none',reason:'Scope echo omitted'})}}]})),async()=>context());
+  assert.equal(await omitted.foregroundRequest(scope,'合成请求',new AbortController().signal),'none');
 });

@@ -1,4 +1,5 @@
 import { WorkSpeech, type WorkStatusNotice } from '../core/work-speech.js';
+import { randomUUID } from 'node:crypto';
 import type { DesktopWorkAction, DesktopWorkPort, WorkInputBinding } from '../contracts/desktop-work.js';
 import type { WorkbenchVoiceBinding } from '../contracts/workbench.js';
 import { PRODUCT_CHARACTERS, type CompanionProfilePort } from '../contracts/character.js';
@@ -114,6 +115,10 @@ export class BackendSession {
   private workbench?: { action(value: unknown): Promise<void> };
   private readonly workSpeech: WorkSpeech;
   notifyWork(notice: WorkStatusNotice) { this.workSpeech.notify(notice); }
+  /** 主动关心：作为一次本地播报说出，但不属于任何对话轮次。 */
+  notifyCare(text: string, gesture: 'heart' | 'comfort' | 'hold_star' | 'lean'): void {
+    this.workSpeech.notify({ id: 'care-' + randomUUID(), kind: 'local_control', spokenText: text, spokenGesture: gesture, executor: 'harness' });
+  }
   attachWork(work: DesktopWorkPort) { this.work = work; this.runtime.attachWork(work); }
   attachWorkbench(workbench: { action(value: unknown): Promise<void> }) { this.workbench = workbench; }
   private readonly profile: CompanionProfilePort | undefined;

@@ -9,7 +9,9 @@ export class EmotionTurns implements EmotionTurnPort {
   private closed=false;
   private readonly jobs=new Map<string,{scope:TurnScope;controller:AbortController}>();
   constructor(private readonly state:EmotionStatePort,private readonly store:SqliteMemoryStore,
-    private readonly backgroundProvider?:EmotionInferenceProvider) {}
+    private readonly backgroundProvider?:EmotionInferenceProvider,
+    /** 本机情境（用户在做什么）。只作为推测的语境输入，不单独产生情绪标签。 */
+    private readonly activity?: () => string) {}
   observations(scope:TurnScope,message:SourceVersion,text:string,perception:PerceptionResult|null):readonly EmotionObservation[] {
     const sources=[{...message}],out:EmotionObservation[]=[];
     if(perception?.scope.turnId===scope.turnId && perception.scope.sessionId===scope.sessionId && perception.scope.characterId===scope.characterId && perception.scope.generation===scope.generation){
@@ -31,9 +33,13 @@ export class EmotionTurns implements EmotionTurnPort {
     if(!current||current.version!==message.version||current.state!=='active'||current.text!==text)return null;
     // Reuse exact issued selections: summaries/memories may influence the same foreground model.
     // Keeping their source versions also prevents emotional state from surviving their correction.
-    const evidence=this.store.lifecycle.contextSources(context);
+    // The foreground current message is no longer repeated in `recent`, so it may be
+    // absent from the issued context sources; the emotion ticket always needs it.
+    const evidence=[...this.store.lifecycle.contextSources(context)];
+    if(!evidence.some(ref=>ref.id===message.id&&ref.version===message.version))evidence.push({id:message.id,version:message.version});
     const ticket=this.state.prepare(context.scope,{id:current.id,version:current.version},evidence);
-    return structuredClone({ticket,text,recent:context.recent,background:ticket.background,perception:context.perception});
+    const activity=this.activity?.().trim() ?? '';
+    return structuredClone({ticket,text,recent:context.recent,background:ticket.background,perception:context.perception,...(activity?{activity}:{})});
   }
   complete(input:EmotionInferenceInput,assessment:EmotionAssessment|undefined):void {
     if(this.closed)return;

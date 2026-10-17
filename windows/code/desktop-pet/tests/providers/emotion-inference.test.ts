@@ -40,7 +40,8 @@ test('null and zero remain distinct; model-supplied source identities are ignore
  assert.equal(a.user?.intensity,0);assert.equal(a.user?.confidence,0);assert.equal(a.companion,null);
  assert.deepEqual(a.user?.sources,[{id:'current:user',version:1}]);
  assert.deepEqual(parseEmotionAssessment({user:null,companion:null},input),{user:null,companion:null});
- assert.equal(parseEmotionAssessment({user:item('sad'),companion:null},{...input,context:{...input.context,recent:[]}}),undefined);
+ assert.equal(parseEmotionAssessment({user:item('sad'),companion:null},{...input,context:{...input.context,recent:[]}})?.user?.sources[0]?.id,'current:user');
+ assert.equal(parseEmotionAssessment({user:item('sad'),companion:null},{...input,text:'另一句话'}),undefined);
 });
 
 test('forget dialogue omits emotion context and ignores returned emotion metadata',async()=>{
